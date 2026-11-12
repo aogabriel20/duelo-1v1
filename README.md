@@ -46,6 +46,22 @@ do celular).
   hospedar este `index.html` em qualquer hospedagem estática
   (GitHub Pages, por exemplo).
 
+## Gráficos 3D em tempo real
+
+Os bonecos e o cenário são modelos 3D de verdade, renderizados em
+tempo real no navegador com **Three.js** (biblioteca embutida no
+repositório, `three.min.js` — o jogo não depende de CDN). Cada
+pistoleiro é um modelo articulado com pescoço, cabeça, tronco, braços,
+pernas, chapéu, cinto com coldre e revólver 3D, com luz e sombra reais
+do sol do sertão — e o movimento usa as mesmas 9 sequências quadro a
+quadro de antes (parado, andando, tiro no tronco, tiro na cabeça,
+queda, no chão, morte em pé, morte no chão, comemoração), mais agachar
+e pular. O cenário de Canudos também é 3D: chão de terra vermelha com
+relevo, mandacaru, xique-xique, caatinga, serra ao longe, igreja em
+ruínas e casinhas de taipa, com poeira flutuando no ar. Se o navegador
+não tiver WebGL, o jogo avisa na tela e continua na versão 2D.
+
 ## Arquivos
 
 - `index.html` — o jogo inteiro (arte, sons, mecânica e online).
+- `three.min.js` — biblioteca 3D (Three.js r160), embutida para o jogo não depender de CDN.

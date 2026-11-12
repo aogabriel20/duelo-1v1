@@ -62,7 +62,9 @@
       /* ---------- palco do jogo ---------- */
       .stage-card{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden}
       .canvas-wrap{position:relative; background:#1d130b}
-      canvas#game{display:block; width:100%; height:auto; aspect-ratio:16/9; touch-action:none; cursor:default}
+      canvas#gl{position:absolute; inset:0; width:100%; height:100%; display:block}
+      canvas#game{position:relative; z-index:1; background:transparent; display:block; width:100%; height:auto; aspect-ratio:16/9; touch-action:none; cursor:default}
+      .gl-msg{position:absolute; left:50%; top:8px; transform:translateX(-50%); z-index:2; background:rgba(20,12,6,.88); color:#ffe9c4; padding:.35rem .9rem; border-radius:999px; font-weight:600; font-size:.85rem; text-align:center; max-width:92%; display:none}
       .stage-msg{
         position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
         background:rgba(20,12,6,.88); color:#ffe9c4; padding:.45rem 1rem; border-radius:999px;
@@ -221,7 +223,9 @@
         <!-- ================= PALCO ================= -->
         <section class="stage-card" aria-label="Área do duelo">
           <div class="canvas-wrap">
+            <canvas id="gl" width="960" height="540"></canvas>
             <canvas id="game" width="960" height="540"></canvas>
+            <div class="gl-msg" id="glMsg"></div>
             <div class="dmg-flash" id="dmgFlash"></div>
             <div class="stage-msg" id="stageMsg"></div>
           </div>
@@ -382,6 +386,7 @@
       </section>
     </main>
 
+    <script src="three.min.js"></script>
     <script>
     (function(){
       "use strict";
@@ -395,6 +400,9 @@
          com AES-GCM usando o próprio código de 4 letras como chave.
          A partida roda em WebRTC direto entre os dois navegadores e
          quem cria a sala é o anfitrião, a autoridade da partida.
+         Gráficos 3D em tempo real com Three.js (three.min.js,
+         embutido no repositório); se o WebGL falhar, o jogo avisa
+         e continua na versão 2D que já existia.
          ============================================================ */
       var W = 960, H = 540, GROUND = 392;
       var X_YOU = 150, X_OPP = 810;
@@ -1486,14 +1494,14 @@
          poses vivas e é quadro a quadro nas reações. O desenho tem volume
          3D: luz vindo da direita da tela, um lado do corpo na sombra e o
          outro com brilho, filete de luz nas bordas, camadas com profundidade. */
-      function drawSpriteFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S){
+      /* Amostra a pose quadro a quadro do pistoleiro a partir do estado
+         do jogo (morte, queda, abalo, comemoração, agachado, andando,
+         parado) e devolve as juntas + a arma — sem desenhar nada. O
+         desenho 2D (drawSpriteFig) e o rig 3D (updateFig3D) usam o
+         mesmo amostrador, então os dois mostram exatamente a mesma pose. */
+      function sampleFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S){
+
         extra = extra || {};
-        ctx.save();
-        ctx.translate(cx, 0);
-        if (flip) ctx.scale(-1, 1);
-        if (extra.jumpLift) ctx.translate(0, -extra.jumpLift); // pulo: o corpo inteiro sobe no ar
-        var hh = colors.h || 1;
-        ctx.translate(0, GROUND * (1 - hh)); ctx.scale(1, hh);
         var AN = B_ANIM[side];
         var hp = side === 'you' ? G.hpYou : G.hpOpp;
         var deathAt = side === 'you' ? G.deathYouAt : G.deathOppAt;
@@ -1549,6 +1557,19 @@
         var rc = extra.recoilP || 0;
         if (rc > 0 && hp > 0){ j.sho = [j.sho[0] - rc * 4, j.sho[1] - rc * 2]; j.head = [j.head[0] - rc * 5, j.head[1]]; }
         if (useLean){ var ln = Math.sin(angle); j.sho = [j.sho[0], j.sho[1] + ln * 2.5]; j.head = [j.head[0], j.head[1] + ln * 2]; }
+        var blink = !extra.expr && hp > 0 && ((now / 1000 + seed * 1.93) % 3.6) < .09;
+        return { j: j, gun: gun, hp: hp, celeb: celeb, blink: blink, expr: (extra.expr || ''), hatOff: hatOff };
+      }
+      function drawSpriteFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S){
+        extra = extra || {};
+        var smp = sampleFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S);
+        var j = smp.j, gun = smp.gun, hp = smp.hp;
+        ctx.save();
+        ctx.translate(cx, 0);
+        if (flip) ctx.scale(-1, 1);
+        if (extra.jumpLift) ctx.translate(0, -extra.jumpLift); // pulo: o corpo inteiro sobe no ar
+        var hh = colors.h || 1;
+        ctx.translate(0, GROUND * (1 - hh)); ctx.scale(1, hh);
 
         var OUT = 'rgba(43,29,18,.8)';
         // perna de trás
@@ -1648,7 +1669,7 @@
         ctx.restore();
         ctx.restore();
         // cabeça (com a inclinação própria de cada quadro)
-        var blink = !extra.expr && hp > 0 && ((now / 1000 + seed * 1.93) % 3.6) < .09;
+        var blink = smp.blink;
         drawHead(j.head, colors, j.headTilt || 0, hatOff, extra.expr || '', blink);
         // braço da arma e o revólver
         limb2(j.sho, gun.e, gun.h, OUT, 14.5);
@@ -1758,7 +1779,466 @@
         ctx.strokeStyle = '#8a6b35'; ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(x - 10, y - 4); ctx.lineTo(x + 12, y - 6); ctx.stroke();
       }
+      /* ============================================================
+         RENDER 3D EM TEMPO REAL — Three.js (three.min.js, embutido
+         no repositório; nada de CDN). Os bonecos são modelos 3D de
+         verdade, montados por um rig articulado: cada junta do
+         amostrador quadro a quadro (sampleFig — as mesmas 9
+         sequências, mesmos tempos) vira uma articulação do modelo,
+         com luz e sombra reais do sol do sertão.
+         A câmera é nivelada (y = 1,525, z = 8,8, fov 42°): a
+         projeção 3D casa pixel a pixel com o palco 2D (chão em
+         y=392, cabeça em y=180), então traçadores, sangue, poeira,
+         cápsulas e os tambores — que continuam desenhados em 2D por
+         cima — ficam alinhados com o boneco 3D. Se o WebGL falhar,
+         o jogo avisa e continua no 2D (nunca tela preta).
+         ============================================================ */
+      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0 };
+      var S3 = 1 / 80; // 1 unidade de mundo = 80 px do palco 2D
+      function wX3(px){ return (px - 480) * S3; }
+      function wY3(py, hh){ return (GROUND - py) * (hh || 1) * S3; }
+      var MAT3CACHE = {};
+      function mat3(color, rough, metal){
+        var k = color + '|' + rough + '|' + metal;
+        if (!MAT3CACHE[k]) MAT3CACHE[k] = new THREE.MeshStandardMaterial({ color: color, roughness: (rough == null ? 0.85 : rough), metalness: (metal || 0) });
+        return MAT3CACHE[k];
+      }
+      var UP3 = null, _qY3 = null, _va = null, _vb = null, _vd = null; // criados no GLInit, só se o Three.js existir
+      function setLimb3(mesh, a, b, r){
+        // cilindro unitário (raio 1, altura 1) esticado entre dois pontos
+        _va.set(a.x, a.y, a.z || 0); _vb.set(b.x, b.y, b.z || 0);
+        _vd.subVectors(_vb, _va);
+        var len = _vd.length() || 0.001;
+        mesh.position.set((_va.x + _vb.x) / 2, (_va.y + _vb.y) / 2, (_va.z + _vb.z) / 2);
+        mesh.quaternion.setFromUnitVectors(UP3, _vd.normalize());
+        mesh.scale.set(r, len, r);
+      }
+      function cyl3(r, material){
+        var m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10), material);
+        m.castShadow = true; return m;
+      }
+      function box3(w, h, d, material){
+        var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        m.castShadow = true; return m;
+      }
+      function sph3(r, material){
+        var m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), material);
+        m.castShadow = true; return m;
+      }
+      function dirtTexture3(){
+        var c = document.createElement('canvas'); c.width = 512; c.height = 512;
+        var g = c.getContext('2d');
+        var grad = g.createLinearGradient(0, 0, 0, 512);
+        grad.addColorStop(0, '#c06a3e'); grad.addColorStop(.5, '#b4552f'); grad.addColorStop(1, '#8f3a20');
+        g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
+        var i, x, y;
+        for (i = 0; i < 500; i++){ // manchas de terra e pedrinhas
+          x = Math.random() * 512; y = Math.random() * 512;
+          g.fillStyle = Math.random() < .5 ? 'rgba(60,20,8,.10)' : 'rgba(255,210,160,.08)';
+          g.beginPath(); g.ellipse(x, y, 4 + Math.random() * 22, 3 + Math.random() * 12, Math.random() * 3, 0, Math.PI * 2); g.fill();
+        }
+        g.strokeStyle = 'rgba(50,16,6,.35)'; g.lineWidth = 1.6; // rachaduras da terra seca
+        for (i = 0; i < 46; i++){
+          x = Math.random() * 512; y = Math.random() * 512;
+          g.beginPath(); g.moveTo(x, y);
+          for (var s = 0; s < 4; s++){ x += (Math.random() - .5) * 46; y += (Math.random() - .5) * 46; g.lineTo(x, y); }
+          g.stroke();
+        }
+        for (i = 0; i < 130; i++){ g.fillStyle = 'rgba(40,14,5,.25)'; g.beginPath(); g.arc(Math.random() * 512, Math.random() * 512, 1 + Math.random() * 2.4, 0, Math.PI * 2); g.fill(); }
+        var t = new THREE.CanvasTexture(c);
+        t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping; t.repeat.set(5, 3);
+        t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+        return t;
+      }
+      function skyTexture3(){
+        var c = document.createElement('canvas'); c.width = 16; c.height = 512;
+        var g = c.getContext('2d');
+        var grad = g.createLinearGradient(0, 0, 0, 512);
+        grad.addColorStop(0, '#cfe0e6'); grad.addColorStop(.45, '#f2d3a0'); grad.addColorStop(.75, '#f0c078'); grad.addColorStop(1, '#e8b06a');
+        g.fillStyle = grad; g.fillRect(0, 0, 16, 512);
+        var t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+      function ridge3(pts, color, z, scene){
+        var shape = new THREE.Shape();
+        shape.moveTo(pts[0][0], 0);
+        for (var i = 0; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+        shape.lineTo(pts[pts.length - 1][0], 0);
+        shape.closePath();
+        var m = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat3(color, 1, 0));
+        m.position.z = z; scene.add(m); return m;
+      }
+      function prismRoof3(w, h, d, material){
+        var shape = new THREE.Shape();
+        shape.moveTo(-w / 2, 0); shape.lineTo(w / 2, 0); shape.lineTo(0, h); shape.closePath();
+        var g = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: false });
+        g.translate(0, 0, -d / 2);
+        var m = new THREE.Mesh(g, material); m.castShadow = true; return m;
+      }
+      function taipaHouse3(w, h, d){
+        var g = new THREE.Group();
+        var walls = box3(w, h, d, mat3('#d9c49a', .95, 0)); walls.position.y = h / 2; g.add(walls);
+        var roof = prismRoof3(w + 0.3, h * 0.45, d + 0.3, mat3('#a85a34', .95, 0)); roof.position.y = h; g.add(roof);
+        var door = box3(w * 0.16, h * 0.5, 0.06, mat3('#4a2f1a', .9, 0)); door.position.set(0, h * 0.25, d / 2 + 0.02); g.add(door);
+        var win = box3(w * 0.14, h * 0.22, 0.05, mat3('#7a6a4d', .9, 0)); win.position.set(-w * 0.28, h * 0.62, d / 2 + 0.02); g.add(win);
+        return g;
+      }
+      function mandacaru3(){
+        var g = new THREE.Group();
+        var green = mat3('#3a5c2b', .9, 0), light = mat3('#4f7a3a', .9, 0);
+        var col = cyl3(0.11, green); col.scale.set(0.11, 1.7, 0.11); col.position.y = 0.85; g.add(col);
+        var stripe = cyl3(0.05, light); stripe.scale.set(0.05, 1.66, 0.05); stripe.position.set(0.05, 0.85, 0.06); g.add(stripe);
+        var arm1 = cyl3(0.07, green); arm1.rotation.z = Math.PI / 2; arm1.scale.set(0.07, 0.42, 0.07); arm1.position.set(-0.24, 1.02, 0); g.add(arm1);
+        var up1 = cyl3(0.07, green); up1.scale.set(0.07, 0.5, 0.07); up1.position.set(-0.44, 1.24, 0); g.add(up1);
+        var arm2 = cyl3(0.07, green); arm2.rotation.z = Math.PI / 2; arm2.scale.set(0.07, 0.36, 0.07); arm2.position.set(0.22, 1.22, 0); g.add(arm2);
+        var up2 = cyl3(0.07, green); up2.scale.set(0.07, 0.44, 0.07); up2.position.set(0.38, 1.4, 0); g.add(up2);
+        return g;
+      }
+      function caatinga3(){
+        var g = new THREE.Group();
+        var m = mat3('#6b4a26', .95, 0);
+        for (var i = -2; i <= 2; i++){
+          var b = cyl3(0.022, m);
+          b.scale.set(0.022, 0.5 + Math.abs(i) * 0.04, 0.022);
+          b.position.set(i * 0.11, 0.24, 0);
+          b.rotation.z = -i * 0.22; g.add(b);
+        }
+        return g;
+      }
+      function buildEnvironment3(scene){
+        // céu empoeirado + poeira no ar
+        scene.background = skyTexture3();
+        scene.fog = new THREE.Fog(0xe9c48c, 20, 48);
+        // sol pálido atrás da poeira, com halo
+        var sun = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24), new THREE.MeshBasicMaterial({ color: 0xfdf3cf, fog: false }));
+        sun.position.set(10.5, 7.5, -38); scene.add(sun);
+        var halo = new THREE.Mesh(new THREE.CircleGeometry(2.4, 24), new THREE.MeshBasicMaterial({ color: 0xffe696, transparent: true, opacity: 0.32, fog: false }));
+        halo.position.set(10.5, 7.5, -38.5); scene.add(halo);
+        // luz: sol quente do sertão + céu
+        var hemi = new THREE.HemisphereLight(0xffe8c0, 0x8a4a28, 0.85); scene.add(hemi);
+        var sunL = new THREE.DirectionalLight(0xffe0b0, 2.4);
+        sunL.position.set(7, 11, 5); sunL.castShadow = true;
+        sunL.shadow.mapSize.set(2048, 2048);
+        sunL.shadow.camera.left = -9; sunL.shadow.camera.right = 9;
+        sunL.shadow.camera.top = 7; sunL.shadow.camera.bottom = -3;
+        sunL.shadow.camera.near = 1; sunL.shadow.camera.far = 32;
+        sunL.shadow.bias = -0.0004; sunL.shadow.normalBias = 0.02;
+        scene.add(sunL);
+        // chão de terra vermelha com relevo — plano no meio do duelo, ondulado nas bordas
+        var gg = new THREE.PlaneGeometry(70, 46, 56, 36);
+        gg.rotateX(-Math.PI / 2);
+        var pos = gg.attributes.position;
+        for (var vi = 0; vi < pos.count; vi++){
+          var vx = pos.getX(vi), vz = pos.getZ(vi);
+          var n = Math.sin(vx * 0.32 + vz * 0.19) * 0.28 + Math.sin(vx * 0.11 - vz * 0.27) * 0.42 + Math.sin(vx * 0.71 + vz * 0.53) * 0.12;
+          var fx = Math.max(0, Math.min(1, (Math.abs(vx) - 5.5) / 3));
+          var fz = Math.max(0, Math.min(1, (Math.abs(vz + 1) - 4) / 3));
+          var f = Math.max(fx, fz);
+          var hy = n * 0.45 * f + Math.max(0, Math.abs(vx) - 16) * 0.03 + Math.max(0, -vz - 15) * 0.04;
+          pos.setY(vi, hy);
+        }
+        gg.computeVertexNormals();
+        var ground = new THREE.Mesh(gg, new THREE.MeshStandardMaterial({ map: dirtTexture3(), roughness: 1, metalness: 0 }));
+        ground.rotation.x = 0; ground.position.set(0, 0, -8); ground.receiveShadow = true;
+        scene.add(ground);
+        // serra ao longe, em duas camadas de poeira
+        ridge3([[-16,0],[-12,3.4],[-8,1.6],[-4,4.4],[-1,2.2],[3,3.8],[7,1.8],[11,3.2],[16,0]], '#c2906a', -27, scene);
+        ridge3([[-16,0],[-11,2.4],[-6,1.2],[-2,3.0],[2,1.4],[6,2.6],[11,1.2],[16,0]], '#a9714f', -21, scene);
+        // igreja antiga em ruínas, como a de Canudos
+        var church = new THREE.Group();
+        var white = mat3('#e6d9bd', .95, 0), shade = mat3('#b7a586', .95, 0), dark = mat3('#5d4a33', .9, 0);
+        var nave = box3(2.6, 1.7, 1.2, white); nave.position.y = 0.85; church.add(nave);
+        var naveRoof = prismRoof3(2.8, 0.7, 1.3, shade); naveRoof.position.y = 1.7; church.add(naveRoof);
+        var tower = box3(0.8, 3.0, 0.9, white); tower.position.set(-1.5, 1.5, 0); church.add(tower);
+        var towerTop = new THREE.Mesh(new THREE.ConeGeometry(0.62, 0.7, 4), shade);
+        towerTop.position.set(-1.5, 3.35, 0); towerTop.rotation.y = Math.PI / 4; towerTop.castShadow = true; church.add(towerTop);
+        var crossV = box3(0.07, 0.5, 0.07, dark); crossV.position.set(-1.5, 3.95, 0); church.add(crossV);
+        var crossH = box3(0.3, 0.07, 0.07, dark); crossH.position.set(-1.5, 3.85, 0); church.add(crossH);
+        var broken = box3(0.8, 1.9, 0.9, white); broken.position.set(1.5, 0.95, 0); church.add(broken);
+        var rub1 = box3(0.3, 0.22, 0.4, shade); rub1.position.set(1.35, 1.98, 0.1); rub1.rotation.z = 0.4; church.add(rub1);
+        var rub2 = box3(0.24, 0.18, 0.3, shade); rub2.position.set(1.68, 1.95, -0.1); rub2.rotation.z = -0.5; church.add(rub2);
+        var door = box3(0.5, 0.9, 0.08, dark); door.position.set(0, 0.45, 0.62); church.add(door);
+        var arch = new THREE.Mesh(new THREE.CircleGeometry(0.25, 16, 0, Math.PI), dark);
+        arch.position.set(0, 0.9, 0.63); church.add(arch);
+        var winT = box3(0.22, 0.34, 0.06, dark); winT.position.set(-1.5, 2.2, 0.46); church.add(winT);
+        var crack = box3(0.04, 0.7, 0.02, dark); crack.position.set(0.7, 1.1, 0.62); crack.rotation.z = 0.25; church.add(crack);
+        church.position.set(2.6, 0, -13); scene.add(church);
+        // casinhas de taipa
+        var h1 = taipaHouse3(2.2, 1.1, 1.4); h1.position.set(-4.6, 0, -12.5); h1.rotation.y = 0.12; scene.add(h1);
+        var h2 = taipaHouse3(1.9, 0.95, 1.2); h2.position.set(8.4, 0, -13.5); h2.rotation.y = -0.15; scene.add(h2);
+        // mandacaru nas bordas, xique-xique e caatinga no meio
+        var m1 = mandacaru3(); m1.position.set(-7.6, 0, -2.5); m1.scale.setScalar(1.25); scene.add(m1);
+        var m2 = mandacaru3(); m2.position.set(7.9, 0, -3.2); scene.add(m2);
+        var x1 = sph3(0.22, mat3('#557f3e', .9, 0)); x1.scale.y = 0.75; x1.position.set(-1.4, 0.14, -2.2); scene.add(x1);
+        var x2 = sph3(0.18, mat3('#557f3e', .9, 0)); x2.scale.y = 0.75; x2.position.set(1.8, 0.12, -1.8); scene.add(x2);
+        var c1 = caatinga3(); c1.position.set(-2.6, 0, -2.6); scene.add(c1);
+        var c2 = caatinga3(); c2.position.set(0.6, 0, -3.0); scene.add(c2);
+        var c3 = caatinga3(); c3.position.set(3.4, 0, -2.4); scene.add(c3);
+        // poeira no ar, flutuando devagar
+        var dn = 220, dp = new Float32Array(dn * 3), ds = new Float32Array(dn);
+        for (var di = 0; di < dn; di++){
+          dp[di * 3] = -9 + Math.random() * 18; dp[di * 3 + 1] = 0.15 + Math.random() * 3.2; dp[di * 3 + 2] = -8 + Math.random() * 12;
+          ds[di] = 0.05 + Math.random() * 0.16;
+        }
+        var dg = new THREE.BufferGeometry();
+        dg.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+        var dc = document.createElement('canvas'); dc.width = 64; dc.height = 64;
+        var dg2 = dc.getContext('2d');
+        var dr = dg2.createRadialGradient(32, 32, 2, 32, 32, 30);
+        dr.addColorStop(0, 'rgba(255,240,200,1)'); dr.addColorStop(1, 'rgba(255,240,200,0)');
+        dg2.fillStyle = dr; dg2.fillRect(0, 0, 64, 64);
+        var dt = new THREE.CanvasTexture(dc);
+        GL.dust = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0xe8c890, size: 0.09, map: dt, transparent: true, opacity: 0.5, depthWrite: false, sizeAttenuation: true }));
+        GL.dustSpeed = ds; scene.add(GL.dust);
+        // névoa de poeira rente ao chão
+        var haze = mat3('#e9c48c', 1, 0); haze.transparent = true; haze.opacity = 0.16;
+        [[-3, -0.5, 2.2], [1.5, 0.5, 2.8], [5.5, -1.5, 2.0]].forEach(function(hp){
+          var hz = new THREE.Mesh(new THREE.CircleGeometry(1, 20), haze);
+          hz.rotation.x = -Math.PI / 2; hz.position.set(hp[0], 0.02, hp[1]); hz.scale.set(hp[2], hp[2] * 0.45, 1);
+          scene.add(hz);
+        });
+      }
+      /* ---- RIG DO PISTOLEIRO 3D ----
+         O modelo é montado com peças (cilindros, esferas e caixas)
+         nas juntas do amostrador: pernas com joelho e bota, tronco
+         afunilado com colete e botões, pescoço, cabeça com chapéu,
+         braço da arma com revólver 3D, braço de apoio, cinto com
+         coldre, violão nas costas (Buster) e lenço no rosto (Billy).
+         Proporção de gente de verdade, com volume e sombra reais. */
+      function buildFigRig(colors, flip){
+        var fwd = flip ? -1 : 1; // para onde o rosto aponta na tela
+        var group = new THREE.Group();
+        var P = {};
+        var coat = mat3(colors.coat, .8, 0), coatD = mat3(colors.coatDark, .85, 0);
+        var pants = mat3(colors.pants, .85, 0), pantsD = mat3(colors.pantsDark, .85, 0);
+        var skin = mat3(colors.skin, .7, 0), skinD = mat3(colors.skinDark, .7, 0);
+        var boots = mat3(colors.boots, .55, 0), hairM = mat3(colors.hair, .9, 0);
+        var steel = mat3('#aeb4bf', .32, .85), steelD = mat3('#596069', .4, .8);
+        P.legB1 = cyl3(0.11, pantsD); P.legB2 = cyl3(0.095, pantsD);
+        P.legF1 = cyl3(0.115, pants); P.legF2 = cyl3(0.10, pants);
+        P.bootB = box3(0.30, 0.10, 0.15, boots); P.bootF = box3(0.30, 0.10, 0.15, boots);
+        P.armB1 = cyl3(0.085, coatD); P.armB2 = cyl3(0.075, coatD);
+        P.armG1 = cyl3(0.09, coat); P.armG2 = cyl3(0.08, coat);
+        P.handB = sph3(0.075, skin); P.handG = sph3(0.08, skin);
+        P.neck = cyl3(0.075, skin);
+        // tronco: grupo orientado do quadril ao ombro, com colete e botões
+        var torsoG = new THREE.Group(); group.add(torsoG);
+        var torsoCyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.78, 1, 12), coat);
+        torsoCyl.castShadow = true; torsoG.add(torsoCyl);
+        var vest = box3(1, 1, 1, mat3(colors.vest, .85, 0)); torsoG.add(vest);
+        var btns = [];
+        for (var bi = 0; bi < 3; bi++){ var b = sph3(0.02, mat3('#d9a92c', .4, .7)); torsoG.add(b); btns.push(b); }
+        P.torsoG = torsoG; P.torsoCyl = torsoCyl; P.vest = vest; P.btns = btns;
+        // cinto com fivela e coldre
+        P.belt = box3(0.44, 0.11, 0.22, mat3('#5a3a1e', .8, 0)); group.add(P.belt);
+        P.buckle = box3(0.09, 0.07, 0.03, mat3('#d9a92c', .4, .7)); group.add(P.buckle);
+        P.holster = box3(0.09, 0.24, 0.07, mat3('#4a2f1a', .85, 0)); group.add(P.holster);
+        var tail = box3(0.24, 0.34, 0.04, coatD); group.add(tail); P.tail = tail;
+        // cabeça: crânio, cabelo, nariz, olho, sobrancelha, lenço ou sorriso, chapéu
+        var headG = new THREE.Group(); group.add(headG);
+        var skull = sph3(0.23, skin); headG.add(skull);
+        var hair = sph3(0.20, hairM); hair.scale.set(1, 0.85, 0.95); hair.position.set(-fwd * 0.05, 0.07, -0.02); headG.add(hair);
+        var nose = sph3(0.035, skin); nose.position.set(fwd * 0.21, -0.02, 0.03); headG.add(nose);
+        var eye = sph3(0.03, mat3('#241811', .6, 0)); eye.position.set(fwd * 0.10, 0.05, 0.155); headG.add(eye);
+        var brow = box3(0.09, 0.018, 0.02, hairM); brow.position.set(fwd * 0.10, 0.115, 0.16); headG.add(brow);
+        var bandana = null;
+        if (colors.faceCover){
+          bandana = box3(0.22, 0.14, 0.26, mat3(colors.band, .85, 0));
+          bandana.position.set(fwd * 0.05, -0.115, 0); headG.add(bandana);
+        }
+        var smile = null;
+        if (colors.smile){
+          smile = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 8, 12, Math.PI * 0.9), mat3('#5d3418', .7, 0));
+          smile.position.set(fwd * 0.13, -0.09, 0.155); smile.rotation.z = Math.PI; smile.castShadow = false;
+          headG.add(smile);
+        }
+        var hatG = new THREE.Group(); hatG.position.set(0, 0.16, 0); headG.add(hatG);
+        var crown = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.155, 0.20, 14), mat3(colors.hat, .85, 0));
+        crown.position.y = 0.10; crown.castShadow = true; hatG.add(crown);
+        var brim = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.025, 20), mat3(colors.hat, .85, 0));
+        brim.castShadow = true; hatG.add(brim);
+        var hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 14), mat3(colors.band, .85, 0));
+        hatBand.position.y = 0.03; hatG.add(hatBand);
+        P.headG = headG; P.eye = eye; P.brow = brow; P.hatG = hatG; P.smile = smile;
+        // revólver 3D: cano, tambor que gira, armação, cabo e martelo
+        var gunG = new THREE.Group(); group.add(gunG);
+        var barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.36, 10), steel);
+        barrel.rotation.z = -Math.PI / 2; barrel.position.set(0.14, 0, 0); barrel.castShadow = true; gunG.add(barrel);
+        var frame = box3(0.12, 0.10, 0.06, steelD); gunG.add(frame);
+        var drumSpin = new THREE.Group(); drumSpin.position.set(0.02, 0, 0); gunG.add(drumSpin);
+        var drum = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.12, 12), steel);
+        drum.rotation.z = -Math.PI / 2; drum.castShadow = true; drumSpin.add(drum);
+        var grip = box3(0.07, 0.17, 0.05, mat3('#6e4525', .8, 0)); grip.position.set(-0.06, -0.09, 0); grip.rotation.z = 0.38; gunG.add(grip);
+        var hammerPivot = new THREE.Group(); hammerPivot.position.set(-0.075, 0.045, 0); gunG.add(hammerPivot);
+        var hammer = box3(0.03, 0.08, 0.03, steelD); hammer.position.set(0, 0.03, 0); hammerPivot.add(hammer);
+        var sight = box3(0.02, 0.03, 0.02, steelD); sight.position.set(0.30, 0.035, 0); gunG.add(sight);
+        P.gunG = gunG; P.hammerPivot = hammerPivot; P.drumSpin = drumSpin;
+        // violão nas costas (Buster Scruggs)
+        var guitarG = null;
+        if (colors.guitar){
+          guitarG = new THREE.Group(); group.add(guitarG);
+          var rim = sph3(0.21, mat3('#5d3817', .8, 0)); rim.scale.set(1, 1.18, 0.32); guitarG.add(rim);
+          var top = sph3(0.19, mat3('#a8763e', .75, 0)); top.scale.set(1, 1.18, 0.32); top.position.z = 0.02; guitarG.add(top);
+          var hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 14), mat3('#2a1a0c', .9, 0));
+          hole.position.set(0, 0, 0.085); guitarG.add(hole);
+          var gneck = box3(0.05, 0.36, 0.04, mat3('#6e4525', .8, 0)); gneck.position.set(0, 0.36, 0); guitarG.add(gneck);
+          var ghead = box3(0.07, 0.06, 0.04, mat3('#3a2410', .8, 0)); ghead.position.set(0, 0.55, 0); guitarG.add(ghead);
+        }
+        P.guitarG = guitarG;
+        // poça de sangue no chão (só aparece caído ou morto)
+        var blood = new THREE.Mesh(new THREE.CircleGeometry(0.55, 20), new THREE.MeshStandardMaterial({ color: '#b31e18', roughness: .6, metalness: 0, transparent: true, opacity: 0.75 }));
+        blood.rotation.x = -Math.PI / 2; blood.scale.set(1.5, 0.55, 1); blood.visible = false;
+        blood.receiveShadow = true;
+        GL.scene.add(blood); P.blood = blood;
+        // membros e mãos vão direto no grupo raiz (o tronco, o cinto e a
+        // cabeça já foram adicionados acima, cada um no seu lugar)
+        group.add(P.legB1); group.add(P.legB2); group.add(P.legF1); group.add(P.legF2);
+        group.add(P.bootB); group.add(P.bootF);
+        group.add(P.armB1); group.add(P.armB2); group.add(P.armG1); group.add(P.armG2);
+        group.add(P.handB); group.add(P.handG); group.add(P.neck);
+        group.traverse(function(o){ if (o.isMesh) o.castShadow = true; });
+        blood.castShadow = false;
+        GL.scene.add(group);
+        return { group: group, parts: P, charId: colors.id, flip: flip };
+      }
+      function updateFig3D(side, cx, flip, colors, angle, now, seed, hatOff, extra){
+        if (!GL.ok) return;
+        var rig = GL.rigs[side];
+        if (!rig || rig.charId !== colors.id){
+          if (rig){ GL.scene.remove(rig.group); if (rig.parts.blood) GL.scene.remove(rig.parts.blood); }
+          rig = GL.rigs[side] = buildFigRig(colors, flip);
+        }
+        var S = colors.id === 'buster' ? U_SET : B_SET;
+        var smp = sampleFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S);
+        var j = smp.j, gun = smp.gun, hh = colors.h || 1;
+        var P = rig.parts, g = rig.group;
+        function mp(p){ return { x: (flip ? -p[0] : p[0]) * S3, y: (GROUND - p[1]) * hh * S3, z: 0 }; }
+        function mj(n){ return mp(j[n]); }
+        var sq = extra.squash || 0;
+        g.position.set(wX3(cx), (extra.hop || 0) * S3, 0);
+        g.scale.set(1 + 0.10 * sq, 1 - 0.16 * sq, 1);
+        var hip = mj('hip'), sho = mj('sho'), head = mj('head');
+        var kneeF = mj('kneeF'), bootF = mj('bootF'), kneeB = mj('kneeB'), bootB = mj('bootB');
+        var elbL = mj('elbL'), handL = mj('handL');
+        var gunE = mp(gun.e), gunH = mp(gun.h);
+        setLimb3(P.legB1, hip, kneeB, 0.11); setLimb3(P.legB2, kneeB, bootB, 0.095);
+        setLimb3(P.legF1, hip, kneeF, 0.115); setLimb3(P.legF2, kneeF, bootF, 0.10);
+        var fwd = flip ? -1 : 1;
+        function bootRot(knee, boot, mesh){
+          var ang = Math.atan2(boot.y - knee.y, boot.x - knee.x) - Math.PI / 2;
+          mesh.position.set(boot.x + fwd * 0.07, boot.y - 0.02, 0);
+          mesh.rotation.set(0, 0, ang);
+        }
+        bootRot(kneeB, bootB, P.bootB); bootRot(kneeF, bootF, P.bootF);
+        // braço de apoio (atrás do corpo) e braço da arma (segue a mira)
+        var shBack = { x: sho.x + (flip ? 7 : -7) * S3, y: sho.y - 5 * hh * S3, z: -0.04 };
+        setLimb3(P.armB1, shBack, elbL, 0.085); setLimb3(P.armB2, elbL, handL, 0.075);
+        P.handB.position.set(handL.x, handL.y, -0.04);
+        setLimb3(P.armG1, sho, gunE, 0.09); setLimb3(P.armG2, gunE, gunH, 0.08);
+        P.handG.position.set(gunH.x, gunH.y, 0.03);
+        // pescoço visível, ligando os ombros à cabeça
+        var neckBase = lerpPt(j.sho, j.head, .38), neckTop = lerpPt(j.sho, j.head, .86);
+        setLimb3(P.neck, mp(neckBase), mp(neckTop), 0.075);
+        // tronco afunilado, orientado do quadril ao ombro
+        _va.set(sho.x - hip.x, sho.y - hip.y, 0);
+        var tlen = _va.length() || 0.001;
+        P.torsoG.position.set(hip.x, hip.y, 0);
+        P.torsoG.quaternion.setFromUnitVectors(UP3, _vd.copy(_va).normalize());
+        // o alinhamento mínimo não preserva o lado da frente: no oponente,
+        // gira o tronco 180° no próprio eixo para o colete ficar no peito
+        if (flip){ _qY3.setFromAxisAngle(UP3, Math.PI); P.torsoG.quaternion.multiply(_qY3); }
+        P.torsoCyl.scale.set(0.19, tlen, 0.15); P.torsoCyl.position.y = tlen / 2;
+        P.vest.scale.set(0.05, tlen * 0.85, 0.16); P.vest.position.set(0.135, tlen * 0.5, 0);
+        for (var bi = 0; bi < 3; bi++){ P.btns[bi].position.set(0.165, tlen * (0.30 + bi * 0.22), 0.02); }
+        // cinto, fivela e coldre acompanham o quadril
+        var tang = Math.atan2(sho.y - hip.y, sho.x - hip.x) - Math.PI / 2;
+        P.belt.position.set(hip.x, hip.y, 0); P.belt.rotation.z = tang;
+        P.buckle.position.set(hip.x + fwd * 0.20, hip.y, 0.115);
+        P.holster.position.set(hip.x - fwd * 0.20, hip.y - 0.06, -0.02); P.holster.rotation.z = fwd * 0.3;
+        P.tail.position.set(hip.x - fwd * 0.20, hip.y - 0.10, -0.06); P.tail.rotation.z = fwd * 0.25;
+        // cabeça (inclinação do quadro) e rosto
+        P.headG.position.set(head.x, head.y, 0);
+        P.headG.rotation.z = (flip ? 1 : -1) * (j.headTilt || 0);
+        P.hatG.visible = !hatOff;
+        P.eye.scale.set(1, smp.blink ? 0.15 : 1, 1);
+        var expr = extra.expr || '';
+        P.brow.rotation.z = expr === 'hurt' ? -0.45 : expr === 'stun' ? 0.5 : 0;
+        if (P.smile) P.smile.visible = true;
+        // revólver na mão, apontando na direção da mira
+        P.gunG.position.set(gunH.x, gunH.y, 0.05);
+        P.gunG.rotation.z = flip ? (gun.a - Math.PI) : (-gun.a);
+        P.hammerPivot.rotation.z = -0.5 - (extra.hammerP || 0) * 0.55;
+        P.drumSpin.rotation.x = extra.cylRot || 0;
+        // violão nas costas
+        if (P.guitarG){
+          P.guitarG.position.set(sho.x + (flip ? 0.34 : -0.34), sho.y - 0.42, 0.04);
+          P.guitarG.rotation.z = flip ? 0.55 : -0.55;
+        }
+        // poça de sangue quando caído ou morto
+        var fallen = (side === 'you' ? G.poseYou : G.poseOpp) === 'fallen';
+        var dead = (side === 'you' ? G.hpYou : G.hpOpp) <= 0;
+        P.blood.visible = fallen || dead;
+        P.blood.position.set(wX3(cx), 0.015, 0.15);
+      }
+      function GLRender(now){
+        if (!GL.ok) return;
+        // poeira flutuando
+        if (GL.dust){
+          var dt = Math.min(0.05, (now - (GL.dustLast || now)) / 1000); GL.dustLast = now;
+          var arr = GL.dust.geometry.attributes.position.array;
+          for (var i = 0; i < GL.dustSpeed.length; i++){
+            arr[i * 3] += GL.dustSpeed[i] * dt;
+            if (arr[i * 3] > 9.5) arr[i * 3] = -9.5;
+          }
+          GL.dust.geometry.attributes.position.needsUpdate = true;
+        }
+        // câmera nivelada (alinhada ao 2D) com balanço sutil e tremor no tiro
+        var sx = Math.sin(now / 2600) * 0.05, sy = 1.525 + Math.sin(now / 3400) * 0.03;
+        if (now < G.shakeUntil){
+          var sh = 0.09 * (G.shakeUntil - now) / 180;
+          sx += (Math.random() * 2 - 1) * sh; sy += (Math.random() * 2 - 1) * sh;
+        }
+        GL.camera.position.set(sx, sy, 8.8);
+        GL.camera.lookAt(sx * 0.5, 1.525, 0);
+        GL.renderer.render(GL.scene, GL.camera);
+      }
+      function GLInit(){
+        var msg = document.getElementById('glMsg');
+        function fail(t){ GL.ok = false; if (msg){ msg.textContent = t; msg.style.display = 'block'; } }
+        try{
+          if (typeof THREE === 'undefined'){ fail('O 3D não carregou (biblioteca ausente) — o jogo continua na versão 2D.'); return; }
+          var glc = document.getElementById('gl');
+          if (!glc){ fail('O 3D não carregou (tela ausente) — o jogo continua na versão 2D.'); return; }
+          if (!(glc.getContext('webgl2') || glc.getContext('webgl'))){ fail('Este navegador não tem WebGL — o jogo continua na versão 2D.'); return; }
+          var renderer = new THREE.WebGLRenderer({ canvas: glc, antialias: true, powerPreference: 'high-performance' });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+          renderer.setSize(960, 540, false);
+          renderer.shadowMap.enabled = true;
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          renderer.toneMappingExposure = 1.1;
+          var scene = new THREE.Scene();
+          var camera = new THREE.PerspectiveCamera(42, 960 / 540, 0.1, 120);
+          camera.position.set(0, 1.525, 8.8);
+          camera.lookAt(0, 1.525, 0);
+          GL.renderer = renderer; GL.scene = scene; GL.camera = camera;
+          UP3 = new THREE.Vector3(0, 1, 0);
+          _qY3 = new THREE.Quaternion();
+          _va = new THREE.Vector3(); _vb = new THREE.Vector3(); _vd = new THREE.Vector3();
+          buildEnvironment3(scene);
+          GL.ok = true;
+        } catch (e){
+          fail('O 3D não abriu neste navegador — o jogo continua na versão 2D.');
+        }
+      }
+      GLInit();
       function drawScene(now){
+        // com o 3D ligado, o cenário é o modelo 3D — aqui só as barras de vida
+        if (GL.ok){
+          drawHpBar(28, 16, 176, 15, G.hpYou, false);
+          drawHpBar(W - 204, 16, 176, 15, G.hpOpp, true);
+          return;
+        }
         // sertão da Guerra de Canudos e dos cangaceiros: céu quente e
         // empoeirado, serra ao longe, igreja antiga em ruínas e casinhas
         // de taipa, chão de terra vermelha rachada com mandacaru, xique-
@@ -2048,6 +2528,7 @@
         if (G.mode === 'cpu') updateAI(now);
         if (G.phase === 'fire') { checkEnd(); renderHUD(); }
 
+        if (GL.ok) ctx.clearRect(0, 0, W, H); // o 2D virou overlay transparente sobre o 3D
         ctx.save();
         if (now < G.shakeUntil){
           var sh = 5 * (G.shakeUntil - now) / 180;
@@ -2097,14 +2578,21 @@
             deathP: dOppP, squash: squashFor('opp'), recoilP: recoilFor('opp') };
         var exYou = { crouchP: Math.max(currentCrouchP('you', now), volCrouchP('you')), walkSwing: walkSwing, expr: exprFor('you', stYou), hammerP: hammerFor('you'), cylRot: G.cylRotYou, hop: (celebYou ? Math.abs(Math.sin(now / 210)) * 9 : 0) + jumpLift('you', now), jumpLift: jumpLift('you', now),
             deathP: dYouP, squash: squashFor('you'), recoilP: recoilFor('you') };
-        if (charFor('opp').id === 'buster')
-          drawBusterFig(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), 'opp', now, 2.1, now < G.hatOppUntil, exOpp);
-        else
-          drawBillyFig(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), 'opp', now, 2.1, now < G.hatOppUntil, exOpp);
-        if (charFor('you').id === 'buster')
-          drawBusterFig(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), 'you', now, 0, now < G.hatYouUntil, exYou);
-        else
-          drawBillyFig(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), 'you', now, 0, now < G.hatYouUntil, exYou);
+        if (GL.ok){
+          // bonecos 3D em tempo real, movidos pelo mesmo amostrador de poses do 2D
+          updateFig3D('opp', xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), now, 2.1, now < G.hatOppUntil, exOpp);
+          updateFig3D('you', xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), now, 0, now < G.hatYouUntil, exYou);
+          GLRender(now);
+        } else {
+          if (charFor('opp').id === 'buster')
+            drawBusterFig(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), 'opp', now, 2.1, now < G.hatOppUntil, exOpp);
+          else
+            drawBillyFig(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), 'opp', now, 2.1, now < G.hatYouUntil, exOpp);
+          if (charFor('you').id === 'buster')
+            drawBusterFig(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), 'you', now, 0, now < G.hatYouUntil, exYou);
+          else
+            drawBillyFig(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), 'you', now, 0, now < G.hatYouUntil, exYou);
+        }
         // estrelinhas girando sobre a cabeça de quem está atordoado
         [['you', xYouNow], ['opp', xOppNow]].forEach(function(pair){
           var sd = pair[0];
