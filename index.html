@@ -181,6 +181,10 @@
       .rules ul{margin:.2rem 0 0; padding-left:1.2rem; color:var(--ink-soft)}
       .rules li{margin:.25rem 0}
       .rules strong{color:var(--ink)}
+      .howto-mini{margin:.2rem 0 .7rem; color:var(--ink-soft)}
+      .howto-mini strong{color:var(--ink)}
+      .howto-details{margin-top:.9rem}
+      .howto-details[hidden]{display:none}
 
       /* ---------- escolha de personagem ---------- */
       .charpick{margin-bottom:1rem}
@@ -275,7 +279,7 @@
 
             <div class="stepbox">
               <h3>Criar uma sala</h3>
-              <p>Toque no botão e um <strong>código de 4 letras</strong> aparece <strong>na hora</strong>. Passe o código para seu amigo — falando, mostrando a tela ou por mensagem.</p>
+              <p>Toque no botão: um <strong>código de 4 letras</strong> aparece na hora. Passe para seu amigo.</p>
               <button class="btn primary" id="createRoomBtn" type="button">Criar sala</button>
               <div class="codebox" id="roomCodeBox">
                 <div class="lbl">Código da sala — passe para seu amigo</div>
@@ -284,7 +288,6 @@
                   <button class="btn ghost small" id="copyRoomBtn" type="button">Copiar código</button>
                 </div>
               </div>
-              <p>Depois é só aguardar nesta tela: quando seu amigo entrar com o código, a conexão fecha sozinha e o botão <strong>“Começar o duelo”</strong> libera.</p>
             </div>
 
             <div class="divider">ENTRAR NUMA SALA</div>
@@ -302,7 +305,7 @@
 
             <button class="btn primary" id="startOnlineBtn" type="button" disabled>Começar o duelo</button>
             <button class="btn ghost" id="leaveBtn" type="button" disabled>Sair da sala</button>
-            <p class="note">Funciona no <strong>mesmo Wi-Fi</strong> e, na maioria dos casos, também em <strong>redes diferentes</strong> — redes muito restritas (alguns Wi-Fis públicos, VPN ligada) podem bloquear a conexão direta entre os aparelhos. Se a conexão não responder de primeira, o jogo <strong>tenta de novo sozinho</strong> — sem código enorme para copiar e colar e sem convite/resposta manual. Quem cria a sala é o <strong>anfitrião</strong> e comanda a partida. Se a sala não registrar, desliguem VPN e bloqueador de anúncios e tentem de novo, ou usem a internet do celular.</p>
+            <p class="note">Funciona no <strong>mesmo Wi-Fi</strong> e em <strong>redes diferentes</strong>. Se não conectar, desligue VPN e bloqueador de anúncios ou use a internet do celular.</p>
           </div>
 
           <!-- CPU -->
@@ -325,9 +328,13 @@
       </div>
 
       <!-- ================= INSTRUÇÕES ================= -->
+            <!-- ================= COMO JOGAR (resumido) ================= -->
       <section class="howto" aria-label="Como jogar">
-        <h2>Como jogar online, em 3 passos</h2>
-        <div class="steps">
+        <h2>Como jogar</h2>
+        <p class="howto-mini"><strong>Online:</strong> um cria a sala e passa o código de <strong>4 letras</strong>; o outro digita o código e entra. O anfitrião toca em <strong>Começar o duelo</strong>. Deixe o <strong>mouse sobre o tambor</strong> para a contagem andar — se sair, ela recomeça do zero. Espere o <strong>FIRE!</strong>, mire com o mouse (não há mira na tela) e atire: <strong>6 balas</strong> por rodada — cabeça 45, tronco 25, pernas 15.</p>
+        <button class="btn ghost small" id="howtoToggle" type="button" aria-expanded="false">Como jogar — ver regras completas</button>
+        <div class="howto-details" id="howtoDetails" hidden>
+<div class="steps">
           <div class="step">
             <h3><span class="num">1</span> Um de vocês cria a sala</h3>
             <p>No painel <strong>Online</strong>, quem vai criar a partida toca em <strong>“Criar sala”</strong>: um código de <strong>4 letras</strong> aparece na hora. É só passar esse código para o amigo.</p>
@@ -362,6 +369,7 @@
             <li>O jogo mede seu <strong>tempo de reação</strong> — quanto você demorou para dar o primeiro tiro depois do “FIRE!” — e mostra seus tiros, acertos e precisão na barra abaixo do palco. No online, a contagem é agendada pelo relógio dos dois aparelhos para começar no mesmo instante dos dois lados, e a barra no topo mostra o ping da conexão. E atenção: no online a contagem só anda enquanto <strong>os dois</strong> estiverem com o mouse sobre o tambor ao mesmo tempo — se um dos dois tirar o mouse, os dois lados voltam ao “PREPAREM-SE” até os dois voltarem.</li>
             <li>A barra no topo da página mostra o estado da conexão o tempo todo. Se ela ficar vermelha, a conexão caiu: criem uma sala nova ou joguem contra o computador.</li>
           </ul>
+        </div>
         </div>
       </section>
     </main>
@@ -585,6 +593,10 @@
         countReady: false,                    // a contagem pode andar neste quadro (os dois prontos, no online)
         bottle: null,                         // garrafa voadora da rodada bônus
         roundShots: 0, roundHits: 0,          // tiros/acertos desta rodada (bônus da tela ROUND COMPLETE)
+        hpSeq: 0,                            // anfitrião: versão do estado oficial de vida/pontos/balas da rodada
+        hpSeen: 0,                           // convidado: última versão do estado oficial aceita nesta rodada
+        shotSeq: 0,                          // contador local de tiros da rodada (id único da mensagem de tiro)
+        seenShots: {},                       // ids de tiros remotos já aplicados nesta rodada (não contar 2x)
         advanceTimer: null,                   // timer da passagem para a próxima rodada
         btnNext: null, btnMenu: null          // retângulos dos botões da tela ROUND COMPLETE
       };
@@ -928,14 +940,24 @@
         effects.push({ kind:'smoke', x: mz.x, y: mz.y, born: now, until: now + 1700, dir: isYou ? 1 : -1 });
         if (hit){
           effects.push({ kind:'blood', x: targetX, y: impactY, born: now, until: now + 620, dir: isYou ? 1 : -1 });
-          if (isYou) G.hpOpp -= hit.dmg; else G.hpYou -= hit.dmg;
-          // morte: marca o instante para o corpo tombar animado, em vez de
-          // trocar de repente para o desenho de caído
-          var tSideD = isYou ? 'opp' : 'you';
-          if ((isYou ? G.hpOpp : G.hpYou) <= 0){
-            if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); }
-            if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); }
-            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1250 });
+          // VIDA COM UM DONO SÓ: no online, só o anfitrião aplica dano e
+          // pontos. O convidado mostra o acerto na hora (sangue, "-25",
+          // som), mas a vida e os pontos só mudam quando o anfitrião
+          // confirma com a mensagem 'hp' — antes, cada lado calculava a
+          // vida sozinho e um tiro perdido no caminho (ou fora da fase
+          // no outro aparelho) deixava as duas telas com vidas
+          // diferentes, e a vida parecia "trocar de jogador".
+          var guestOwnShot = (G.mode === 'online' && G.role === 'guest' && isYou);
+          if (!guestOwnShot){
+            if (isYou) G.hpOpp -= hit.dmg; else G.hpYou -= hit.dmg;
+            // morte: marca o instante para o corpo tombar animado, em vez de
+            // trocar de repente para o desenho de caído
+            var tSideD = isYou ? 'opp' : 'you';
+            if ((isYou ? G.hpOpp : G.hpYou) <= 0){
+              if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); }
+              if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); }
+              effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1250 });
+            }
           }
           if (isYou && !remote){ G.stats.hits++; G.roundHits++; }
           if (!isYou) flashDamage();
@@ -944,10 +966,11 @@
           addRing(targetX, impactY, '#ffcf5c');
           applyHitEffect(isYou ? 'opp' : 'you', hit.name, now);
           // pontos: dano vale mais com tiro rápido e em região difícil
+          // (o convidado não soma aqui: os pontos dele chegam com o 'hp')
           var react = isYou ? G.reactYou : G.reactOpp;
           var pts = hit.dmg * 10 + (hit.name === 'head' ? 150 : hit.name === 'arm' ? 80 : 0)
                   + (react && react <= 450 ? 100 : react && react <= 800 ? 50 : 0);
-          if (isYou) G.pointsYou += pts; else G.pointsOpp += pts;
+          if (!guestOwnShot){ if (isYou) G.pointsYou += pts; else G.pointsOpp += pts; }
         } else {
           addText(Math.max(56, Math.min(W - 56, end.x)), Math.max(40, end.y - 12), 'errou', '#8a6d3b');
           if (end.y > GROUND - 6) effects.push({ kind:'dust', x: end.x, y: GROUND, born: now, until: now + 500 });
@@ -962,8 +985,14 @@
         }
         renderHUD();
         if (G.mode === 'online' && isYou && connOpen()){
-          sendMsg({ t:'shot', y: impactY / H, hit: !!hit, dmg: hit ? hit.dmg : 0, zone: hit ? hit.name : '' });
+          // o tiro leva a rodada e um id único: o outro lado ignora tiro
+          // de rodada errada (atraso de rede) e nunca aplica o mesmo 2x
+          G.shotSeq++;
+          sendMsg({ t:'shot', r: G.round, id: (G.role || 'x') + '-' + G.round + '-' + G.shotSeq, y: impactY / H, hit: !!hit, dmg: hit ? hit.dmg : 0, zone: hit ? hit.name : '' });
         }
+        // anfitrião: depois de processar qualquer tiro, manda o estado
+        // oficial (vida, pontos e balas dos dois) para o convidado
+        if (G.mode === 'online' && G.role === 'host' && connOpen()) sendHpState();
         checkEnd();
       }
       function checkEnd(){
@@ -990,6 +1019,7 @@
         renderHUD();
         if (G.mode === 'online' && G.role === 'host' && connOpen()){
           sendMsg({ t:'roundEnd', winner: w === 'you' ? 'host' : (w === 'opp' ? 'guest' : 'draw'), round: G.round, sH: G.scoreYou, sG: G.scoreOpp });
+          sendHpState();
         }
         if (G.reactYou && (!G.stats.bestReact || G.reactYou < G.stats.bestReact)) G.stats.bestReact = G.reactYou;
         var fmtR = function(ms){ return (ms/1000).toFixed(2).replace('.', ',') + 's'; };
@@ -1050,6 +1080,7 @@
         G.deathYouAt = 0; G.deathOppAt = 0; G.staggerYouFrom = 0; G.staggerOppFrom = 0;
         G.hitZoneYou = ''; G.hitZoneOpp = '';
         G.goSent = false; G.guestGo = false; G.remoteHover = false; G.countReady = false;
+        G.hpSeq = 0; G.hpSeen = 0; G.shotSeq = 0; G.seenShots = {};
         // nova rodada: os dois entram andando e recarregam o tambor
         G.walkT0 = t0 - 350;
         G.reloadT0 = t0;
@@ -2702,8 +2733,16 @@
         channel.onerror = function(){ if (channel === dc) setConn('err', 'erro na conexão com o amigo'); };
       }
 
+      /* Estado oficial da partida (anfitrião -> convidado): vida, pontos e
+         balas dos dois em valores absolutos, com a rodada e uma versão que
+         só cresce. O convidado aplica e pronto — sem recalcular nada. */
+      function sendHpState(reSend){
+        if (!connOpen()) return;
+        if (!reSend) G.hpSeq++;
+        sendMsg({ t:'hp', r: G.round, v: G.hpSeq, h: G.hpYou, g: G.hpOpp, pH: G.pointsYou, pG: G.pointsOpp, aH: G.ammoYou, aG: G.ammoOpp });
+      }
       function sendSyncPing(){ sendMsg({ t:'sync', h: performance.now() }); }
-      setInterval(function(){ if (G.role === 'host' && connOpen()) sendSyncPing(); }, 8000);
+      setInterval(function(){ if (G.role === 'host' && connOpen()){ sendSyncPing(); sendHpState(true); } }, 8000);
       // durante a contagem, reafirma o estado do tambor a cada 600 ms: se uma
       // mensagem de entrada/saída se perder, os dois se reencontram sozinhos
       setInterval(function(){ if (G.mode === 'online' && G.phase === 'countdown' && connOpen()) sendMsg({ t:'hover', on: G.hoverCyl }); }, 600);
@@ -2743,12 +2782,41 @@
         }
         else if (m.t === 'hold'){ G.guestGo = false; } // alguém saiu do tambor: volta ao PREPAREM-SE
         else if (m.t === 'shot'){
-          if (G.phase === 'fire'){
-            shoot('opp', m.y * H, { hit: m.hit, dmg: m.dmg, zone: m.zone });
-          } else {
-            // tiro fora da fase (atraso de rede): só o visual, na altura recebida
+          // tiro de rodada errada (atraso de rede) ou repetido não vale:
+          // só o visual, na altura recebida
+          if (m.r !== G.round || (m.id && G.seenShots[m.id])){
             addTracer('opp', m.y * H, null);
+          } else {
+            if (m.id) G.seenShots[m.id] = true;
+            // aceita o tiro em FIRE! — e também no finzinho da contagem,
+            // quando o FIRE! já está para sair e o relógio do outro lado
+            // está um pouco na frente do meu (senão o tiro some num lado
+            // e a vida dos dois diverge)
+            var fireSoon = (G.phase === 'countdown' && performance.now() >= G.countT0 + 1800 - 250);
+            if (G.phase === 'fire' || fireSoon){
+              shoot('opp', m.y * H, { hit: m.hit, dmg: m.dmg, zone: m.zone });
+            } else {
+              addTracer('opp', m.y * H, null);
+            }
           }
+        }
+        else if (m.t === 'hp'){
+          // estado oficial do anfitrião (vida, pontos e balas dos dois, em
+          // valores absolutos): traduzido para o meu lado e aplicado — é
+          // ele que impede a vida de divergir ou trocar de jogador. Só
+          // vale para a rodada atual e só aceita versão nova (nunca velha).
+          if (G.role !== 'guest') return;
+          if (m.r !== G.round) return;
+          if (typeof m.v === 'number' && m.v < G.hpSeen) return;
+          if (typeof m.v === 'number') G.hpSeen = m.v;
+          if (typeof m.g === 'number') G.hpYou = m.g;
+          if (typeof m.h === 'number') G.hpOpp = m.h;
+          if (typeof m.pG === 'number') G.pointsYou = m.pG;
+          if (typeof m.pH === 'number') G.pointsOpp = m.pH;
+          if (typeof m.aG === 'number') G.ammoYou = m.aG;
+          if (typeof m.aH === 'number') G.ammoOpp = m.aH;
+          renderHUD();
+          checkEnd();
         }
         else if (m.t === 'start'){
           if (m.round === 1){ G.scoreYou = 0; G.scoreOpp = 0; G.pointsYou = 0; G.pointsOpp = 0; G.stats = { shots: 0, hits: 0, bestReact: 0 }; }
@@ -2884,6 +2952,13 @@
       });
 
       el('myName').addEventListener('change', function(){ G.youName = myDisplayName(); renderHUD(); });
+
+      el('howtoToggle').addEventListener('click', function(){
+        var d = el('howtoDetails'), open = d.hidden;
+        d.hidden = !open;
+        this.setAttribute('aria-expanded', String(open));
+        this.textContent = open ? 'Como jogar — esconder regras' : 'Como jogar — ver regras completas';
+      });
 
       setMode('online');
     })();
