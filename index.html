@@ -1,0 +1,2892 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Duelo 1v1</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Zilla+Slab:wght@500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --bg:#ece7de; --panel:#fffdf7; --panel2:#f6f0e3; --ink:#2b1d12; --ink-soft:#5d4c3a;
+        --line:#d8cbb4; --accent:#b3401e; --accent-ink:#ffffff; --teal:#14655a; --teal-soft:#dcefe9;
+        --amber:#b97e10; --red:#b3261e; --green:#1e7d32; --shadow:0 10px 28px rgba(43,29,18,.14);
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark){
+        :root{
+          --bg:#14100c; --panel:#211a14; --panel2:#2a211a; --ink:#f2e7d8; --ink-soft:#c9b8a3;
+          --line:#453729; --accent:#e0683c; --accent-ink:#1c110a; --teal:#4fc3ae; --teal-soft:#173b34;
+          --amber:#e0a83c; --red:#ef6a5e; --green:#6fce7e; --shadow:0 10px 28px rgba(0,0,0,.45);
+        }
+      }
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0}
+      body{
+        background:var(--bg); color:var(--ink);
+        font-family:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+        font-size:16px; line-height:1.5;
+      }
+      h1,h2,h3{font-family:"Zilla Slab",Georgia,serif; line-height:1.15; margin:0}
+      button,[role="button"],select,input:not([type="checkbox"],[type="radio"]){min-height:2.75rem}
+      button{font:inherit; cursor:pointer}
+
+      /* ---------- status bar (sempre visível) ---------- */
+      .statusbar{
+        position:sticky; top:0; z-index:50;
+        display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+        background:#241811; color:#f5e9d6; padding:.55rem 1rem;
+        border-bottom:3px solid var(--accent);
+      }
+      @media (prefers-color-scheme: dark){ .statusbar{background:#0d0a07} }
+      .statusbar .dot{width:14px;height:14px;border-radius:50%;background:#9a8d7c;flex:0 0 auto;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+      .statusbar .dot.on{background:#57d977}
+      .statusbar .dot.wait{background:#f2b63c}
+      .statusbar .dot.err{background:#ef5350}
+      .statusbar .dot.local{background:#57b6d9}
+      .statusbar strong{font-family:"Zilla Slab",serif; letter-spacing:.02em}
+      .statusbar .grow{flex:1 1 auto}
+      .icon-btn{
+        background:transparent; color:#f5e9d6; border:1px solid rgba(245,233,214,.4);
+        border-radius:.5rem; padding:.35rem .8rem; min-height:2.5rem; font-weight:600;
+      }
+      .icon-btn:hover{border-color:#f5e9d6}
+
+      main{max-width:1180px; margin:0 auto; padding:1rem clamp(.75rem,3vw,1.5rem) 2.5rem}
+      .layout{display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:1.1rem; align-items:start}
+      @media (max-width:900px){ .layout{grid-template-columns:1fr} }
+
+      /* ---------- palco do jogo ---------- */
+      .stage-card{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden}
+      .canvas-wrap{position:relative; background:#1d130b}
+      canvas#game{display:block; width:100%; height:auto; aspect-ratio:16/9; touch-action:none; cursor:default}
+      .stage-msg{
+        position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
+        background:rgba(20,12,6,.88); color:#ffe9c4; padding:.45rem 1rem; border-radius:999px;
+        font-weight:600; font-size:.95rem; text-align:center; max-width:92%; display:none;
+      }
+      .stage-msg.show{display:block}
+      .dmg-flash{position:absolute; inset:0; pointer-events:none; opacity:0;
+        background:radial-gradient(ellipse at center, transparent 55%, rgba(179,38,30,.55) 100%);
+        transition:opacity .5s ease}
+      .dmg-flash.hit{opacity:1; transition:opacity .05s ease}
+      .statsbar{
+        display:flex; flex-wrap:wrap; gap:.4rem 1.4rem; padding:.55rem 1rem .8rem;
+        border-top:1px solid var(--line); font-size:.88rem; color:var(--ink-soft);
+      }
+      .statsbar strong{color:var(--ink)}
+
+      .hud{display:grid; grid-template-columns:1fr auto 1fr; gap:.75rem; padding:.8rem 1rem 1rem; align-items:start}
+      @media (max-width:560px){ .hud{grid-template-columns:1fr 1fr} .hud .mid{grid-column:1/-1; order:-1} }
+      .fighter .fname{font-family:"Zilla Slab",serif; font-weight:700; font-size:1.05rem; display:flex; align-items:center; gap:.45rem}
+      .tag{font-size:.72rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:.12rem .5rem; border-radius:999px; background:var(--teal-soft); color:var(--teal)}
+      .tag.opp{background:#f7e3dc; color:var(--accent)}
+      @media (prefers-color-scheme: dark){ .tag.opp{background:#40231a; color:#f0936e} }
+      .hpbar{height:14px; background:var(--panel2); border:1px solid var(--line); border-radius:999px; overflow:hidden; margin:.35rem 0 .3rem}
+      .hpfill{height:100%; width:100%; background:linear-gradient(90deg,#e23b2e,#e6d92e 55%,#4db02c); transition:width .25s ease}
+      .hpfill.low{background:linear-gradient(90deg,#e23b2e,#e6d92e 55%,#4db02c)}
+      .meta{display:flex; justify-content:space-between; gap:.5rem; font-size:.88rem; color:var(--ink-soft); flex-wrap:wrap}
+      .pips{display:inline-flex; gap:4px; vertical-align:middle}
+      .pip{width:9px;height:16px;border-radius:3px 3px 2px 2px;background:var(--amber);display:inline-block}
+      .pip.spent{background:var(--line)}
+      .fighter.right{text-align:right}
+      .fighter.right .fname{justify-content:flex-end}
+      .fighter.right .meta{flex-direction:row-reverse}
+      .mid{text-align:center}
+      .mid .round{font-family:"Zilla Slab",serif; font-weight:700; font-size:1.05rem}
+      .mid .score{font-family:"Zilla Slab",serif; font-size:1.7rem; font-weight:700; line-height:1.1}
+      .mid .score small{font-size:.85rem; color:var(--ink-soft); font-family:"Archivo",sans-serif; font-weight:600}
+      .mid .timer{font-size:.88rem; color:var(--ink-soft); min-height:1.3em}
+
+      /* ---------- painel lateral ---------- */
+      .panel{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:1rem}
+      .panel h2{font-size:1.25rem; margin-bottom:.35rem}
+      .panel p{margin:.3rem 0 .7rem; color:var(--ink-soft); font-size:.95rem}
+      .tabs{display:grid; grid-template-columns:1fr 1fr; gap:.4rem; margin-bottom:1rem}
+      .tab{
+        border:1.5px solid var(--line); background:var(--panel2); color:var(--ink);
+        border-radius:.6rem; font-weight:700; font-size:.86rem; padding:.5rem .2rem; min-height:3rem;
+      }
+      .tab[aria-selected="true"]{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+      .tabpane{display:none}
+      .tabpane.active{display:block}
+      label.flabel{display:block; font-weight:600; font-size:.92rem; margin:.7rem 0 .3rem}
+      input[type="text"]{
+        width:100%; font:inherit; padding:.55rem .7rem; border:1.5px solid var(--line);
+        border-radius:.6rem; background:var(--panel); color:var(--ink);
+      }
+      input.code-input{text-transform:uppercase; letter-spacing:.35em; font-weight:700; font-size:1.25rem; text-align:center; font-family:"Zilla Slab",serif}
+      select{width:100%; font:inherit; padding:.55rem .7rem; border:1.5px solid var(--line); border-radius:.6rem; background:var(--panel); color:var(--ink)}
+      .btn{
+        display:inline-flex; align-items:center; justify-content:center; gap:.45rem;
+        border-radius:.6rem; border:1.5px solid transparent; font-weight:700;
+        padding:.6rem 1rem; width:100%; margin-top:.6rem; text-decoration:none;
+      }
+      .btn.primary{background:var(--accent); color:var(--accent-ink)}
+      .btn.teal{background:var(--teal); color:#fff}
+      @media (prefers-color-scheme: dark){ .btn.teal{color:#0c2420} }
+      .btn.ghost{background:transparent; border-color:var(--line); color:var(--ink)}
+      .btn:disabled{opacity:.45; cursor:not-allowed}
+      .btn.small{width:auto; padding:.45rem .8rem; margin-top:0}
+      .codebox{
+        display:none; margin-top:.9rem; background:var(--panel2); border:1.5px dashed var(--amber);
+        border-radius:.7rem; padding:.8rem; text-align:center;
+      }
+      .codebox.show{display:block}
+      .codebox .lbl{font-size:.82rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft)}
+      .codebox .code{font-family:"Zilla Slab",serif; font-size:2.1rem; font-weight:700; letter-spacing:.3em; padding-left:.3em; line-height:1.2}
+      .codebox .row{display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; margin-top:.5rem}
+      .divider{display:flex; align-items:center; gap:.6rem; margin:1.1rem 0 .2rem; color:var(--ink-soft); font-size:.85rem; font-weight:700}
+      .divider::before,.divider::after{content:""; flex:1; border-top:1px solid var(--line)}
+      .note{font-size:.88rem; color:var(--ink-soft); background:var(--panel2); border-radius:.6rem; padding:.6rem .75rem; margin-top:.8rem}
+      .note strong{color:var(--ink)}
+      .err{color:var(--red); font-weight:600; font-size:.92rem; min-height:1.2em; margin-top:.4rem}
+      .ok{color:var(--green); font-weight:600; font-size:.92rem; min-height:1.2em; margin-top:.4rem}
+      kbd{background:var(--panel2); border:1px solid var(--line); border-bottom-width:2.5px; border-radius:.35rem; padding:.05rem .4rem; font-family:inherit; font-weight:700; font-size:.85em}
+
+      textarea.code-area{
+        width:100%; font:inherit; font-size:.78rem; line-height:1.45; padding:.55rem .7rem;
+        border:1.5px solid var(--line); border-radius:.6rem; background:var(--panel); color:var(--ink);
+        resize:vertical; word-break:break-all;
+      }
+      .stepstatus{
+        background:var(--teal-soft); color:var(--ink); border-radius:.6rem;
+        padding:.65rem .8rem; margin-top:.8rem; font-size:.93rem;
+      }
+      .stepbox{
+        border:1.5px solid var(--line); border-radius:.7rem; background:var(--panel2);
+        padding:.8rem .85rem .9rem; margin-top:.9rem;
+      }
+      .stepbox h3{font-size:1.05rem; margin-bottom:.3rem}
+      .stepbox p{margin:.25rem 0 .5rem}
+      .rowflex{display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem}
+      .rowflex .btn{flex:1 1 8rem; margin-top:0}
+
+      /* ---------- instruções ---------- */
+      .howto{margin-top:1.4rem; background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:1.2rem clamp(1rem,3vw,1.6rem)}
+      .howto h2{font-size:1.45rem; margin-bottom:.8rem}
+      .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:1.1rem}
+      @media (max-width:820px){ .steps{grid-template-columns:1fr} }
+      .step h3{font-size:1.05rem; margin-bottom:.3rem; display:flex; align-items:center; gap:.55rem}
+      .num{
+        width:30px;height:30px; flex:0 0 auto; border-radius:50%; background:var(--accent); color:var(--accent-ink);
+        display:inline-flex; align-items:center; justify-content:center; font-family:"Zilla Slab",serif; font-weight:700;
+      }
+      .step p{margin:0; color:var(--ink-soft); font-size:.95rem}
+      .rules{margin-top:1.1rem; border-top:1px solid var(--line); padding-top:.9rem}
+      .rules h3{font-size:1.05rem; margin-bottom:.4rem}
+      .rules ul{margin:.2rem 0 0; padding-left:1.2rem; color:var(--ink-soft)}
+      .rules li{margin:.25rem 0}
+      .rules strong{color:var(--ink)}
+
+      /* ---------- escolha de personagem ---------- */
+      .charpick{margin-bottom:1rem}
+      .charpick h3{font-size:1.02rem; margin-bottom:.45rem}
+      .chargrid{display:grid; grid-template-columns:1fr 1fr; gap:.45rem}
+      .charbtn{
+        display:flex; align-items:center; gap:.55rem; text-align:left;
+        border:1.5px solid var(--line); background:var(--panel2); color:var(--ink);
+        border-radius:.6rem; padding:.45rem .55rem; min-height:3.2rem; font-size:.86rem; line-height:1.25;
+      }
+      .charbtn[aria-pressed="true"]{border-color:var(--accent); background:var(--panel); box-shadow:inset 0 0 0 1.5px var(--accent)}
+      .charbtn .sw{flex:0 0 auto; width:30px; height:30px; border-radius:50%; position:relative; border:2px solid rgba(43,29,18,.45)}
+      .charbtn .sw::before{content:""; position:absolute; left:-6px; right:-6px; top:2px; height:7px; border-radius:50%; background:var(--hatc,#9c6b35)}
+      .charbtn b{display:block; font-size:.9rem}
+      .charbtn small{color:var(--ink-soft)}
+      .charinfo{font-size:.88rem; color:var(--ink-soft); margin:.5rem 0 0}
+      .charinfo strong{color:var(--ink)}
+    </style>
+  </head>
+  <body>
+    <div class="statusbar" role="status" aria-live="polite">
+      <span class="dot" id="connDot"></span>
+      <strong>Conexão:</strong> <span id="connText">nenhuma — escolha um modo para jogar</span>
+      <span class="grow"></span>
+      <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true">🔊 Som ligado</button>
+    </div>
+
+    <main>
+      <div class="layout">
+        <!-- ================= PALCO ================= -->
+        <section class="stage-card" aria-label="Área do duelo">
+          <div class="canvas-wrap">
+            <canvas id="game" width="960" height="540"></canvas>
+            <div class="dmg-flash" id="dmgFlash"></div>
+            <div class="stage-msg" id="stageMsg"></div>
+          </div>
+          <div class="hud">
+            <div class="fighter">
+              <div class="fname"><span id="nameYou">Você</span> <span class="tag">Você</span></div>
+              <div class="hpbar"><div class="hpfill" id="hpYou"></div></div>
+              <div class="meta">
+                <span>Vida: <strong id="hpYouTxt">100</strong></span>
+                <span>Balas: <span class="pips" id="ammoYou"></span></span>
+              </div>
+            </div>
+            <div class="mid">
+              <div class="round" id="roundLbl">Escolha um modo e comece</div>
+              <div class="score"><span id="scoreYou">0</span> <small>×</small> <span id="scoreOpp">0</span></div>
+              <div class="timer" id="timerLbl"></div>
+            </div>
+            <div class="fighter right">
+              <div class="fname"><span class="tag opp" id="oppTag">Oponente</span> <span id="nameOpp">Oponente</span></div>
+              <div class="hpbar"><div class="hpfill" id="hpOpp"></div></div>
+              <div class="meta">
+                <span>Vida: <strong id="hpOppTxt">100</strong></span>
+                <span>Balas: <span class="pips" id="ammoOpp"></span></span>
+              </div>
+            </div>
+          </div>
+          <div class="statsbar" id="statsBar" aria-label="Estatísticas da partida">
+            <span>Seus tiros: <strong id="stShots">0</strong></span>
+            <span>Seus acertos: <strong id="stHits">0</strong></span>
+            <span>Precisão: <strong id="stAcc">—</strong></span>
+            <span>Melhor reação após o FIRE!: <strong id="stReact">—</strong></span>
+            <span>Pontos: <strong id="stPoints">0</strong></span>
+            <span id="stReactRound"></span>
+          </div>
+        </section>
+
+        <!-- ================= PAINEL ================= -->
+        <aside class="panel" aria-label="Modos de jogo">
+          <h2>Jogar</h2>
+          <p>Sem cadastro: é só escolher o modo e começar.</p>
+
+          <div class="charpick">
+            <h3>Escolha seu pistoleiro</h3>
+            <div class="chargrid" id="charGrid" role="group" aria-label="Personagens"></div>
+            <p class="charinfo" id="charInfo"></p>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Modo de jogo">
+            <button class="tab" role="tab" id="tab-online" aria-selected="true" data-mode="online" type="button">🌐 Online<br />2 aparelhos</button>
+            <button class="tab" role="tab" id="tab-cpu" aria-selected="false" data-mode="cpu" type="button">🤠 Contra o<br />computador</button>
+          </div>
+
+          <!-- ONLINE -->
+          <div class="tabpane active" id="pane-online" role="tabpanel" aria-labelledby="tab-online">
+            <label class="flabel" for="myName">Seu apelido (opcional)</label>
+            <input type="text" id="myName" maxlength="14" placeholder="Ex.: Billy" autocomplete="off" />
+
+            <div class="stepstatus" id="manualStatus" role="status">Para jogar com um amigo: um de vocês <strong>cria a sala</strong> e o outro <strong>entra com o código de 4 letras</strong>.</div>
+
+            <div class="stepbox">
+              <h3>Criar uma sala</h3>
+              <p>Toque no botão e um <strong>código de 4 letras</strong> aparece <strong>na hora</strong>. Passe o código para seu amigo — falando, mostrando a tela ou por mensagem.</p>
+              <button class="btn primary" id="createRoomBtn" type="button">Criar sala</button>
+              <div class="codebox" id="roomCodeBox">
+                <div class="lbl">Código da sala — passe para seu amigo</div>
+                <div class="code" id="roomCodeTxt">----</div>
+                <div class="row">
+                  <button class="btn ghost small" id="copyRoomBtn" type="button">Copiar código</button>
+                </div>
+              </div>
+              <p>Depois é só aguardar nesta tela: quando seu amigo entrar com o código, a conexão fecha sozinha e o botão <strong>“Começar o duelo”</strong> libera.</p>
+            </div>
+
+            <div class="divider">ENTRAR NUMA SALA</div>
+
+            <div class="stepbox">
+              <h3>Entrar na sala do amigo</h3>
+              <p>Digite as <strong>4 letras</strong> do código que ele te passou e toque em entrar.</p>
+              <label class="flabel" for="joinCode">Código da sala</label>
+              <input type="text" id="joinCode" class="code-input" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" />
+              <button class="btn teal" id="joinRoomBtn" type="button">Entrar na sala</button>
+            </div>
+
+            <div class="err" id="onlineErr"></div>
+            <div class="ok" id="onlineOk"></div>
+
+            <button class="btn primary" id="startOnlineBtn" type="button" disabled>Começar o duelo</button>
+            <button class="btn ghost" id="leaveBtn" type="button" disabled>Sair da sala</button>
+            <p class="note">Funciona no <strong>mesmo Wi-Fi</strong> e, na maioria dos casos, também em <strong>redes diferentes</strong> — redes muito restritas (alguns Wi-Fis públicos, VPN ligada) podem bloquear a conexão direta entre os aparelhos. Se a conexão não responder de primeira, o jogo <strong>tenta de novo sozinho</strong> — sem código enorme para copiar e colar e sem convite/resposta manual. Quem cria a sala é o <strong>anfitrião</strong> e comanda a partida. Se a sala não registrar, desliguem VPN e bloqueador de anúncios e tentem de novo, ou usem a internet do celular.</p>
+          </div>
+
+          <!-- CPU -->
+          <div class="tabpane" id="pane-cpu" role="tabpanel" aria-labelledby="tab-cpu">
+            <p>Treine contra o pistoleiro do computador. Ele fica mais rápido a cada rodada que você vence.</p>
+            <label class="flabel" for="oppChar">Pistoleiro do computador</label>
+            <select id="oppChar">
+              <option value="random" selected>Aleatório a cada duelo</option>
+            </select>
+            <label class="flabel" for="difficulty">Dificuldade inicial</label>
+            <select id="difficulty">
+              <option value="easy">Fácil — para aprender</option>
+              <option value="normal" selected>Normal</option>
+              <option value="hard">Rápido — pistoleiro experiente</option>
+            </select>
+            <button class="btn primary" id="startCpuBtn" type="button">Começar duelo contra o computador</button>
+          </div>
+
+        </aside>
+      </div>
+
+      <!-- ================= INSTRUÇÕES ================= -->
+      <section class="howto" aria-label="Como jogar">
+        <h2>Como jogar online, em 3 passos</h2>
+        <div class="steps">
+          <div class="step">
+            <h3><span class="num">1</span> Um de vocês cria a sala</h3>
+            <p>No painel <strong>Online</strong>, quem vai criar a partida toca em <strong>“Criar sala”</strong>: um código de <strong>4 letras</strong> aparece na hora. É só passar esse código para o amigo.</p>
+          </div>
+          <div class="step">
+            <h3><span class="num">2</span> O amigo entra com o código</h3>
+            <p>Quem recebeu o código abre o jogo, digita as <strong>4 letras</strong> em <strong>“Entrar numa sala”</strong> e toca em <strong>“Entrar na sala”</strong>. A conexão fecha sozinha — sem código enorme, sem convite e resposta para copiar e colar.</p>
+          </div>
+          <div class="step">
+            <h3><span class="num">3</span> Começar o duelo</h3>
+            <p>Quando a barra no topo mostrar <strong>“Conectado”</strong> nos dois aparelhos, quem criou a sala (o anfitrião) toca em <strong>“Começar o duelo”</strong>. Depois, cada jogador coloca o mouse sobre o <strong>seu tambor de balas</strong>, no canto inferior esquerdo da cena — a contagem só anda enquanto o mouse estiver em cima dele, e <strong>recomeça do zero</strong> se o mouse sair antes do FIRE!.</p>
+          </div>
+        </div>
+        <div class="rules">
+          <h3>Regras do duelo</h3>
+          <ul>
+            <li><strong>Mouse sobre o tambor de balas:</strong> a partida só começa — e a contagem só anda — enquanto o mouse estiver sobre o tambor de balas do seu revólver, o círculo de metal no canto inferior esquerdo da cena, como no duelo clássico. Se tirar o mouse de cima antes do FIRE!, a contagem <strong>recomeça do zero</strong>; no toque, encoste e segure o dedo sobre o tambor.</li>
+            <li><strong>Espere o “FIRE!”</strong> — aparece a contagem 3, 2, 1 e só então vale atirar. Clicar antes da hora <strong>não atira e não gasta bala</strong> — o tiro só sai depois do FIRE!.</li>
+            <li><strong>Sem mira — o braço segue o mouse:</strong> não existe mira na tela, como no duelo clássico. O braço do seu pistoleiro aponta <strong>na hora, sem atraso</strong>, para onde o mouse está, seguindo o ponteiro em velocidade total: mouse alto busca a cabeça; mouse baixo, as pernas. O braço só vira para a frente do pistoleiro — ele <strong>nunca gira para trás do corpo</strong>. <strong>Atire</strong> com o clique (no toque, arraste para apontar e toque para atirar).</li>
+            <li>Cada pistoleiro tem <strong>6 balas</strong> e <strong>100 de vida</strong> por rodada. O dano depende da altura do acerto: <strong>cabeça 45, tronco 25, pernas 15</strong> — tiro acima da cabeça ou abaixo dos pés erra.</li>
+            <li><strong>Tiro na perna derruba:</strong> quem é atingido na perna cai no chão da rua — e <strong>continua no duelo atirando do chão</strong>, apoiado no braço. Do chão, o corpo fica mais baixo (mais difícil de acertar), mas a mão fica menos firme e os tiros variam um pouco de altura.</li>
+            <li><strong>Tiro no tronco inclina para trás</strong> o pistoleiro por um instante; tiro na cabeça, além do dano maior, <strong>arranca o chapéu</strong>, que voa e cai na rua, e <strong>atordoa</strong> — quem levou não consegue atirar por um instante. <strong>Tiro no braço do gatilho</strong> (18 de dano) deixa a mão tremendo por alguns segundos, e os tiros saem tortos. Tiro que <strong>passa raspando</strong> levanta poeira e faz o alvo se encolher por reflexo.</li>
+            <li><strong>Personagens:</strong> escolha seu pistoleiro no painel — cada um tem altura, chapéu, rosto e roupa próprios, e contra o computador cada adversário tem velocidade de saque e erro de mira diferentes. A altura muda as faixas de acerto: gente alta expõe mais a cabeça.</li>
+            <li><strong>Animação quadro a quadro:</strong> o <strong>Billy Poeira</strong> foi refeito do zero com sequências desenhadas ação por ação — parado respirando, andando, levando tiro no tronco e na cabeça, caindo com o joelho cedendo, a mão buscando o chão, o corpo batendo e quicando antes de mirar do chão, morrendo e comemorando. Nada de pose única girada: cada ação tem seus próprios quadros, com antecipação, peso e impacto. Os outros pistoleiros serão refeitos no mesmo molde, um por um.</li>
+            <li><strong>A arma trabalha de verdade:</strong> o tambor gira uma câmara a cada tiro, o martelo arma e cai, o coice levanta o braço e bagunça um pouco a mira, a cápsula vazia voa e cai tilintando na rua, a fumaça fica no ar — e a cada rodada os dois recarregam com animação e som: o tambor abre, ejeta as cápsulas e recebe as 6 balas uma a uma. Tambor vazio faz só o clique seco.</li>
+            <li><strong>Pontos:</strong> além das rodadas, você soma pontos pelo dano, com bônus por tiro na cabeça ou no braço e por reagir rápido depois do FIRE!. A partida é <strong>melhor de 5 rodadas</strong>.</li>
+            <li><strong>Cena e telas como no vídeo de referência:</strong> fundo branco, faixa de chão bege, sombras cinzentas longas, barras de vida vermelho-amarelo-verde nos cantos superiores, tambores prateados de 6 câmaras nos cantos inferiores, contagem e FIRE! em vermelho bem grande no centro. Cada rodada abre com o painel <strong>ROUND n/9 START</strong> e a dificuldade (rodada 2: 30%, rodada 3: 40%) e fecha com <strong>ROUND COMPLETE</strong>, com Accuracy Bonus, Speed Bonus, Life Bonus e Total Score — no computador, os botões <strong>NEXT ROUND</strong> e <strong>MAIN MENU</strong> da própria tela funcionam. Na campanha contra o computador, a rodada 2 é o pistoleiro de chapéu cinza e camisa preta e a rodada 3 é a pistoleira de chapéu preto com flor, vestido preto e botas pretas; você joga de camisa vermelha, lenço azul no rosto, chapéu marrom e botas amarelas.</li>
+            <li><strong>Garrafa voadora:</strong> em toda rodada, uma garrafa cruza a cena em arco durante o tiroteio, girando no ar. Se a altura do seu tiro cruzar a garrafa, ela quebra com som de vidro e vale <strong>+100 pontos</strong>. Quem cai com tiro na perna continua atirando deitado do chão, com poça de sangue ao lado, como no vídeo.</li>
+            <li><strong>Sons recriados:</strong> todos os sons são sintetizados na hora pelo próprio jogo, ouvindo o vídeo de referência — estrondo grave do tiro, tique seco da contagem, baque do acerto, som da queda, da morte, da vitória, dos sinos da tela de rodada e do vidro da garrafa. Nenhum áudio do jogo original foi copiado ou extraído.</li>
+            <li>A rodada acaba quando alguém cai — ou em <strong>empate</strong>, quando os dois esgotam as 6 balas (ou o tempo de 30 segundos termina) sem ninguém cair. No empate, ninguém marca ponto e a rodada é repetida.</li>
+            <li><strong>Quem vencer 3 rodadas ganha o duelo.</strong></li>
+            <li>O jogo mede seu <strong>tempo de reação</strong> — quanto você demorou para dar o primeiro tiro depois do “FIRE!” — e mostra seus tiros, acertos e precisão na barra abaixo do palco. No online, a contagem é agendada pelo relógio dos dois aparelhos para começar no mesmo instante dos dois lados, e a barra no topo mostra o ping da conexão. E atenção: no online a contagem só anda enquanto <strong>os dois</strong> estiverem com o mouse sobre o tambor ao mesmo tempo — se um dos dois tirar o mouse, os dois lados voltam ao “PREPAREM-SE” até os dois voltarem.</li>
+            <li>A barra no topo da página mostra o estado da conexão o tempo todo. Se ela ficar vermelha, a conexão caiu: criem uma sala nova ou joguem contra o computador.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script>
+    (function(){
+      "use strict";
+      /* ============================================================
+         DUELO 1v1 — arte, sons e código originais desta página.
+         Online: salas com código de 4 letras. A sinalização usa
+         fetch comum (HTTPS) com o serviço público ntfy.sh — nenhuma
+         biblioteca externa é carregada, nenhum WebSocket é exigido,
+         e se a primeira tentativa não responder o jogo tenta de novo
+         sozinho no mesmo serviço. As mensagens da sala são cifradas
+         com AES-GCM usando o próprio código de 4 letras como chave.
+         A partida roda em WebRTC direto entre os dois navegadores e
+         quem cria a sala é o anfitrião, a autoridade da partida.
+         ============================================================ */
+      var W = 960, H = 540, GROUND = 392;
+      var X_YOU = 150, X_OPP = 810;
+      var CYL = { x: 86, y: 466, r: 60 }; // tambor de balas do jogador (canto inferior esquerdo)
+      var WIN_SCORE = 3, ROUND_TIME = 30000; // melhor de 5 rodadas: primeiro a 3
+
+      /* ---------------- PERSONAGENS (arte própria) ----------------
+         Cada pistoleiro tem altura, chapéu, rosto, roupa e — contra o
+         computador — velocidade e erro próprios de mira. */
+      var CHARACTERS = [
+        { id:'billy', name:'Billy Poeira', trait:'Camisa vermelha, lenço azul no rosto, botas amarelas', h:1.00, hatStyle:'wide', beard:false, faceCover:true,
+          skin:'#e2ac74', skinDark:'#c68d54', hair:'#4a2f1d', hat:'#8a6224', hatDark:'#6b4a18', band:'#203fa8',
+          coat:'#c1271d', coatDark:'#8f1a14', vest:'#3a3a3a', shirt:'#f3e9d2', pants:'#c1271d', pantsDark:'#8f1a14', boots:'#e0aa1e',
+          ai:{ react:600, interval:560, spread:58 } },
+        { id:'cass', name:'Cass Areia', trait:'Chapéu cinza e camisa preta — oponente da rodada 2', h:1.02, hatStyle:'tall', beard:false,
+          skin:'#bd8652', skinDark:'#9c683c', hair:'#241a12', hat:'#a8a8a8', hatDark:'#767676', band:'#3a3a3a',
+          coat:'#161616', coatDark:'#0d0d0d', vest:'#161616', shirt:'#2a2a2a', pants:'#6e5b49', pantsDark:'#524334', boots:'#1c1c1c',
+          ai:{ react:660, interval:600, spread:38 } },
+        { id:'marla', name:'Marla Serra', trait:'Saque rapidíssimo, mira nervosa', h:0.94, hatStyle:'flat', beard:false,
+          skin:'#d99e63', skinDark:'#b87c44', hair:'#191008', hat:'#5d3a1e', hatDark:'#452a14', band:'#a33327',
+          coat:'#31594f', coatDark:'#23423a', vest:'#191512', shirt:'#efe3c8', pants:'#3d3a33', pantsDark:'#2b2823', boots:'#4a2f1a',
+          ai:{ react:430, interval:470, spread:78 } },
+        { id:'tomas', name:'Tomás Alto', trait:'Alto: cabeça mais exposta, braço firme', h:1.09, hatStyle:'tall', beard:true,
+          skin:'#c98f56', skinDark:'#a96f3c', hair:'#5a4632', hat:'#33424f', hatDark:'#25313b', band:'#c9a227',
+          coat:'#4a5d23', coatDark:'#37471a', vest:'#5d3a1e', shirt:'#e9dfc4', pants:'#54432c', pantsDark:'#40331f', boots:'#5d3a1e',
+          ai:{ react:560, interval:540, spread:46 } },
+        { id:'vera', name:'Vera Luto', trait:'Chapéu preto com flor, vestido preto — oponente da rodada 3', h:0.97, hatStyle:'flower', beard:false, dress:true,
+          skin:'#e8b98a', skinDark:'#cb9865', hair:'#3a1f14', hat:'#17151a', hatDark:'#0c0a0e', band:'#17151a',
+          coat:'#141216', coatDark:'#0c0a0e', vest:'#141216', shirt:'#e8b98a', pants:'#e8b98a', pantsDark:'#cb9865', boots:'#0d0b0d',
+          ai:{ react:700, interval:640, spread:30 } },
+        { id:'otavio', name:'Otávio Barba', trait:'Lento no saque, tiro pesado e certeiro', h:1.04, hatStyle:'cap', beard:true,
+          skin:'#d99e63', skinDark:'#b87c44', hair:'#8a8378', hat:'#6e5636', hatDark:'#524026', band:'#31594f',
+          coat:'#7a4a21', coatDark:'#5d3817', vest:'#31594f', shirt:'#efe3c8', pants:'#4c3b26', pantsDark:'#382b1a', boots:'#3a2812',
+          ai:{ react:760, interval:700, spread:34 } }
+      ];
+      function charById(id){ for (var i = 0; i < CHARACTERS.length; i++) if (CHARACTERS[i].id === id) return CHARACTERS[i]; return CHARACTERS[0]; }
+      function randomCharExcept(id){ var pool = CHARACTERS.filter(function(c){ return c.id !== id; }); return pool[Math.floor(Math.random() * pool.length)]; }
+
+      var canvas = document.getElementById('game');
+      var ctx = canvas.getContext('2d');
+
+      function el(id){ return document.getElementById(id); }
+      var connDot = el('connDot'), connText = el('connText');
+      var stageMsg = el('stageMsg');
+      var msgTimer = null;
+      function showMsg(txt, ms){
+        stageMsg.textContent = txt; stageMsg.classList.add('show');
+        if (msgTimer) clearTimeout(msgTimer);
+        if (ms) msgTimer = setTimeout(function(){ stageMsg.classList.remove('show'); }, ms);
+      }
+      function hideMsg(){ stageMsg.classList.remove('show'); }
+
+      function setConn(cls, txt){ connDot.className = 'dot' + (cls ? ' ' + cls : ''); connText.textContent = txt; }
+
+      /* ---------------- ÁUDIO (sons sintetizados, próprios) ---------------- */
+      var audioCtx = null, soundOn = true;
+      function ac(){
+        if (!audioCtx){ try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      }
+      function beep(freq, dur, type, vol, when){
+        if (!soundOn) return; var a = ac(); if (!a) return;
+        var t = a.currentTime + (when || 0);
+        var o = a.createOscillator(), g = a.createGain();
+        o.type = type || 'square'; o.frequency.value = freq;
+        g.gain.setValueAtTime(vol || .12, t);
+        g.gain.exponentialRampToValueAtTime(.001, t + dur);
+        o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur);
+      }
+      /* Sons recriados por síntese, ouvindo o vídeo de referência:
+         o tiro do original é um estrondo GRAVE e seco (o grave domina
+         perto de 80 Hz), com estalo curto no ataque e cauda de uns
+         0,35 s — nada é copiado do áudio do vídeo, tudo é gerado aqui. */
+      function noiseBurst(dur, filterType, freq, vol, when, q){
+        if (!soundOn) return; var a = ac(); if (!a) return;
+        var t = a.currentTime + (when || 0);
+        var buf = a.createBuffer(1, Math.max(1, a.sampleRate * dur), a.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 1.8);
+        var src = a.createBufferSource(); src.buffer = buf;
+        var f = a.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; if (q) f.Q.value = q;
+        var g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+        src.connect(f); f.connect(g); g.connect(a.destination); src.start(t);
+      }
+      function toneDrop(f0, f1, dur, type, vol, when){
+        if (!soundOn) return; var a = ac(); if (!a) return;
+        var t = a.currentTime + (when || 0);
+        var o = a.createOscillator(), g = a.createGain();
+        o.type = type; o.frequency.setValueAtTime(f0, t);
+        o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+        o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur);
+      }
+      function gunshot(){
+        // estrondo grave do vídeo: corpo em ~80 Hz + estalo seco + eco curto da rua
+        toneDrop(165, 42, .34, 'sine', .85);
+        toneDrop(95, 38, .22, 'triangle', .4);
+        noiseBurst(.10, 'lowpass', 2400, .5);
+        noiseBurst(.30, 'lowpass', 620, .55);
+        noiseBurst(.18, 'lowpass', 300, .22, .09);
+      }
+      function fallSound(){
+        // queda: ar deslocado, baque no chão e poeira — no tempo da queda (950 ms)
+        noiseBurst(.30, 'bandpass', 500, .20, 0, 1.2);
+        toneDrop(140, 48, .20, 'sine', .5, .42);
+        noiseBurst(.16, 'lowpass', 400, .4, .42);
+      }
+      function deathSound(){
+        toneDrop(280, 46, .65, 'sawtooth', .12);
+        toneDrop(150, 40, .5, 'sine', .5, .05);
+        noiseBurst(.2, 'lowpass', 380, .35, .3);
+      }
+      function bottleSound(){
+        // garrafa quebrando: estilhaços agudos e curtos, um sobre o outro
+        var fr = [2350, 2980, 1870, 3420, 2640];
+        for (var i = 0; i < fr.length; i++) beep(fr[i] + Math.random()*220, .16 + Math.random()*.12, 'sine', .07, i * .028);
+        noiseBurst(.12, 'highpass', 3800, .16);
+      }
+      function bottleThrowSound(){ noiseBurst(.28, 'bandpass', 900, .07, 0, 2); }
+      function roundSound(){
+        // tela de rodada: dois sinos curtos e secos, como no abrir da rodada do vídeo
+        beep(1318, .28, 'sine', .12); beep(1975, .34, 'sine', .09, .11);
+      }
+      function dryClick(){ beep(1400, .05, 'square', .06); beep(900, .06, 'square', .05, .04); }
+      function metalClick(freq, when, vol){ beep(freq, .045, 'square', vol || .07, when || 0); }
+      function reloadSounds(){
+        // sequência própria da recarga: abre o tambor, ejeta, insere 6 balas, fecha
+        metalClick(1150, 0); metalClick(760, .09, .08);
+        for (var i = 0; i < 6; i++) metalClick(500 + i * 60, .22 + i * .05, .045); // cápsulas saindo/caindo
+        for (var j = 0; j < 6; j++) metalClick(1500 + j * 90, .62 + j * .14, .06); // balas entrando
+        metalClick(980, 1.52, .09); metalClick(1350, 1.6, .08); // tambor fecha e gira
+      }
+      function shellPing(){ beep(2100 + Math.random()*600, .07, 'triangle', .05); }
+      function hitSound(){
+        // acerto: baque surdo no corpo + respingo curto, junto do estrondo do tiro
+        toneDrop(120, 52, .16, 'sine', .55);
+        noiseBurst(.09, 'lowpass', 900, .3);
+        noiseBurst(.14, 'bandpass', 1500, .12, .02, 1);
+      }
+      function countBeep(final){
+        // contagem do vídeo: números com tique seco e curto; o FIRE! sobe e segura
+        if (final){ beep(880, .3, 'square', .13); beep(1318, .38, 'square', .09, .03); toneDrop(300, 90, .25, 'sine', .2, 0); }
+        else { beep(587, .09, 'square', .11); noiseBurst(.04, 'highpass', 2500, .08); }
+      }
+      function winJingle(){
+        // vitória: fraseado curto de sino/trompa sintetizado, subindo e fechando aberto
+        var n=[392,523,659,784,659,784,1046];
+        for (var i=0;i<n.length;i++) beep(n[i], .26, 'triangle', .13, i*.12);
+        toneDrop(196, 98, .5, 'sine', .12, n.length*.12);
+      }
+      el('soundBtn').addEventListener('click', function(){
+        soundOn = !soundOn;
+        this.textContent = soundOn ? '🔊 Som ligado' : '🔇 Som desligado';
+        this.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
+        if (soundOn) ac();
+      });
+
+      /* ---------------- ESTADO DO JOGO ---------------- */
+      var G = {
+        mode: null,            // 'online' | 'cpu'
+        role: null,            // online: 'host' | 'guest'
+        phase: 'idle',         // idle | countdown | fire | roundEnd | matchEnd
+        count: '',             // texto da contagem
+        round: 1,
+        scoreYou: 0, scoreOpp: 0,
+        hpYou: 100, hpOpp: 100,
+        ammoYou: 6, ammoOpp: 6,
+        aimYou: {x:.5, y:.45},
+        aimOpp: {x:.5, y:.45},
+        lastShotYou: 0, lastShotOpp: 0,
+        fireAt: 0, deadline: 0,
+        winner: null,          // 'you' | 'opp' | 'draw'
+        endHandled: false,
+        oppName: 'Oponente',
+        youName: 'Você',
+        countT0: 0,            // instante local em que a contagem começa (relógio da partida)
+        countStep: -1,         // passo atual da contagem já anunciado
+        reactYou: 0, reactOpp: 0,   // tempo de reação do 1º tiro da rodada (ms após o FIRE!)
+        stats: { shots: 0, hits: 0, bestReact: 0 },
+        shakeUntil: 0,
+        clockOffset: null,     // online: relógio do convidado − relógio do anfitrião (ms)
+        rtt: 0,
+        hoverCyl: false,       // mouse sobre o tambor de balas: a contagem só anda assim
+        poseYou: 'stand', poseOpp: 'stand',   // 'stand' | 'fallen' (caiu com tiro na perna)
+        poseYouAt: 0, poseOppAt: 0,           // instante da queda (anima a transição)
+        staggerYouUntil: 0, staggerOppUntil: 0, // abalo de tiro no tronco/cabeça
+        recoilYouAt: 0, recoilOppAt: 0,       // instante do último tiro (coice do braço)
+        hatYouUntil: 0, hatOppUntil: 0,       // até quando o chapéu está fora da cabeça (tiro na cabeça)
+        charYou: 'billy', charOpp: 'cass',    // personagem escolhido / do oponente
+        crouchYouUntil: 0, crouchOppUntil: 0, // encolhida após quase-acerto (poeira no pé)
+        armYouUntil: 0, armOppUntil: 0,       // braço ferido: a mira treme
+        stunYouUntil: 0, stunOppUntil: 0,     // atordoado (tiro na cabeça): não atira
+        cylRotYou: 0, cylRotOpp: 0,           // rotação acumulada do tambor (gira a cada tiro)
+        pointsYou: 0, pointsOpp: 0,           // pontos por dano, velocidade e precisão
+        walkT0: 0,                            // início da entrada andando na rodada
+        reloadT0: 0,                          // início da animação de recarga da rodada
+        deathYouAt: 0, deathOppAt: 0,         // instante da morte (anima o tombo até o corpo deitado)
+        staggerYouFrom: 0, staggerOppFrom: 0, // início do abalo (a volta é em mola, não linear)
+        hitZoneYou: '', hitZoneOpp: '',       // última região atingida (escolhe a sequência de quadros do impacto)
+        remoteHover: false,                   // online: o amigo está com o mouse sobre o tambor dele?
+        guestGo: false,                       // convidado: o anfitrião liberou a contagem (os dois prontos)
+        goSent: false,                        // anfitrião: já avisou o "vai" desta tentativa de contagem
+        countReady: false,                    // a contagem pode andar neste quadro (os dois prontos, no online)
+        bottle: null,                         // garrafa voadora da rodada bônus
+        roundShots: 0, roundHits: 0,          // tiros/acertos desta rodada (bônus da tela ROUND COMPLETE)
+        advanceTimer: null,                   // timer da passagem para a próxima rodada
+        btnNext: null, btnMenu: null          // retângulos dos botões da tela ROUND COMPLETE
+      };
+      var effects = [];   // {kind:'tracer'|'text'|'flash'|'ring', ... , until}
+      var ai = { nextShot: 0, aimTarget: {x:.26,y:.5}, nextWander: 0, level: 0 };
+      var DIFF = {
+        easy:   { react: 950, interval: 780, spread: 95 },
+        normal: { react: 620, interval: 560, spread: 62 },
+        hard:   { react: 400, interval: 420, spread: 40 }
+      };
+
+      /* ---------------- HUD ---------------- */
+      function pips(n){
+        var s = '';
+        for (var i = 0; i < 6; i++) s += '<span class="pip' + (i < n ? '' : ' spent') + '"></span>';
+        return s;
+      }
+      function renderHUD(){
+        el('hpYou').style.width = Math.max(0, G.hpYou) + '%';
+        el('hpOpp').style.width = Math.max(0, G.hpOpp) + '%';
+        el('hpYou').className = 'hpfill' + (G.hpYou <= 30 ? ' low' : '');
+        el('hpOpp').className = 'hpfill' + (G.hpOpp <= 30 ? ' low' : '');
+        el('hpYouTxt').textContent = Math.max(0, G.hpYou);
+        el('hpOppTxt').textContent = Math.max(0, G.hpOpp);
+        el('ammoYou').innerHTML = pips(G.ammoYou);
+        el('ammoOpp').innerHTML = pips(G.ammoOpp);
+        el('scoreYou').textContent = G.scoreYou;
+        el('scoreOpp').textContent = G.scoreOpp;
+        el('nameYou').textContent = G.youName;
+        el('nameOpp').textContent = G.oppName;
+        if (G.phase !== 'idle'){
+          el('roundLbl').textContent = G.mode === 'cpu'
+            ? 'Rodada ' + G.round + '/9 · Difficulty ' + Math.min(90, (G.round + 1) * 10) + '%'
+            : 'Rodada ' + G.round + ' de ' + (WIN_SCORE*2-1) + ' · primeiro a ' + WIN_SCORE;
+        }
+        if (G.phase === 'fire'){
+          var left = Math.max(0, Math.ceil((G.deadline - performance.now())/1000));
+          el('timerLbl').textContent = '⏱ ' + left + 's';
+        } else el('timerLbl').textContent = '';
+        el('stShots').textContent = G.stats.shots;
+        el('stHits').textContent = G.stats.hits;
+        el('stAcc').textContent = G.stats.shots ? Math.round(G.stats.hits / G.stats.shots * 100) + '%' : '—';
+        el('stReact').textContent = G.stats.bestReact ? (G.stats.bestReact / 1000).toFixed(2).replace('.', ',') + 's' : '—';
+        el('stPoints').textContent = G.pointsYou + (G.mode ? ' × ' + G.pointsOpp + ' do oponente' : '');
+      }
+      function flashDamage(){
+        var f = el('dmgFlash');
+        f.classList.add('hit');
+        setTimeout(function(){ f.classList.remove('hit'); }, 90);
+        G.shakeUntil = performance.now() + 180;
+      }
+
+      /* ---------------- GEOMETRIA / ACERTO ----------------
+         Sem mira: o mouse controla só a ALTURA do tiro. O braço do
+         pistoleiro aponta para a altura do mouse e o tiro viaja nessa
+         altura até o oponente — acertar depende da faixa de altura:
+         cabeça, tronco ou pernas de quem está do outro lado. */
+      function currentFallP(side, now){
+        var pose = side === 'you' ? G.poseYou : G.poseOpp;
+        if (pose !== 'fallen') return 0;
+        var at = side === 'you' ? G.poseYouAt : G.poseOppAt;
+        // progresso bruto da queda (0→1); o easing fica por junta, em fallJointP —
+        // interpolar tudo junto, em linha reta, era o que deixava a queda "robótica"
+        return Math.min(1, Math.max(0, ((now || performance.now()) - at) / 430));
+      }
+      /* Cada junta tem seu atraso na queda: o quadril cede primeiro, os pés
+         arrastam, a cabeça e a mão da arma são os últimos a cair — e tudo
+         acelera como gravidade (expoente 1,7), em vez de deslizar uniforme. */
+      var FALL_LAG = { hip:0, kneeF:.05, bootF:.11, kneeB:.05, bootB:.11, shoulder:.10, head:.18, elbowR:.15, handR:.22 };
+      function fallJointP(raw, lag){
+        var t = Math.min(1, Math.max(0, (raw - lag) / (1 - lag)));
+        return Math.pow(t, 1.7);
+      }
+      // tombo da morte: progresso bruto 0→1 em 780 ms
+      function currentDeathP(side, now){
+        var at = side === 'you' ? G.deathYouAt : G.deathOppAt;
+        if (!at) return 0;
+        return Math.min(1, Math.max(0, ((now || performance.now()) - at) / 780));
+      }
+      // ângulo do tombo: acelera caindo para trás e quica de leve ao bater no chão
+      function deathAngle(p){
+        var t = Math.min(1, p / .78);
+        var a = 1.42 * t * t;
+        if (p > .78){ var q = (p - .78) / .22; a += Math.sin(q * Math.PI) * .06 * (1 - q); }
+        return a;
+      }
+      // abalo de tiro no tronco/cabeça: sobe e volta como mola amortecida, não em rampa
+      function staggerVal(from, until, now){
+        if (!from || now < from || now >= until) return 0;
+        var p = (now - from) / (until - from);
+        return Math.sin(p * Math.PI) * (1 - .25 * p);
+      }
+      function setStagger(side, now, dur){
+        if (side === 'you'){ G.staggerYouFrom = now; G.staggerYouUntil = now + dur; }
+        else { G.staggerOppFrom = now; G.staggerOppUntil = now + dur; }
+      }
+      function charFor(side){ return charById(side === 'you' ? G.charYou : G.charOpp); }
+      // encolhida: sobe rápido quando o tiro passa raspando e volta devagar
+      function currentCrouchP(side, now){
+        var until = side === 'you' ? G.crouchYouUntil : G.crouchOppUntil;
+        now = now || performance.now();
+        if (now >= until) return 0;
+        var remain = until - now;
+        return remain > 320 ? 1 : Math.pow(remain / 320, .6);
+      }
+      // entrada andando: 0 = fora da posição, 1 = no lugar do duelo
+      function currentWalkP(now){
+        if (!G.walkT0) return 1;
+        var t = Math.min(1, Math.max(0, ((now || performance.now()) - G.walkT0) / 950));
+        return t * t * (3 - 2 * t);
+      }
+      function handPos(side, now){
+        var sh = shoulderPos(side, now);
+        var a = aimAngleFor(side);
+        var dirx = side === 'you' ? Math.cos(a) : -Math.cos(a);
+        return { x: sh.x + dirx * 48, y: sh.y + Math.sin(a) * 48 };
+      }
+      function shoulderPos(side, now){
+        var fp = fallJointP(currentFallP(side, now), .10);
+        var sx = lerp(8, 20, fp), sy = lerp(230, 316, fp);
+        return side === 'you' ? { x: X_YOU + sx, y: sy } : { x: X_OPP - sx, y: sy };
+      }
+      function aimAngleFor(side){
+        var sh = shoulderPos(side, performance.now());
+        var a;
+        if (side === 'you'){
+          // O braço aponta direto para o ponteiro do mouse, sem nenhuma
+          // suavização: segue o mouse a 100% da velocidade, para onde ele
+          // for. Mas nunca vira para trás do corpo — o ângulo fica travado
+          // na frente do pistoleiro (de 90° para cima a 90° para baixo).
+          var px = G.aimYou.x * W, py = G.aimYou.y * H;
+          a = Math.atan2(py - sh.y, px - sh.x);
+          var LIM = Math.PI / 2;
+          if (a > LIM) a = LIM; else if (a < -LIM) a = -LIM;
+        } else {
+          // oponente: G.aimOpp.y guarda a altura em que o tiro dele cruza o seu lado
+          var aimY = G.aimOpp.y * H;
+          a = Math.atan2(aimY - sh.y, Math.abs(X_YOU - sh.x));
+        }
+        // coice do revólver: logo após o tiro, o braço sobe por um instante
+        // e a mira fica um pouco fora do lugar — atirar de novo na pressa sai torto
+        var recAt = side === 'you' ? G.recoilYouAt : G.recoilOppAt;
+        if (recAt){
+          var rp = 1 - (performance.now() - recAt) / 220;
+          if (rp > 0) a -= rp * rp * .16;
+        }
+        // braço ferido: a mão treme e o braço não segura a altura direito
+        var armUntil = side === 'you' ? G.armYouUntil : G.armOppUntil;
+        var nowA = performance.now();
+        if (nowA < armUntil){
+          a += Math.sin(nowA / 34) * .021 + Math.sin(nowA / 13.7) * .013;
+        }
+        return a;
+      }
+      // Altura em que o seu tiro cruza o lado do oponente, seguindo a
+      // direção exata do braço (que aponta para o ponteiro do mouse).
+      function myImpactY(){
+        var sh = shoulderPos('you', performance.now());
+        var a = aimAngleFor('you');
+        var y = sh.y + Math.tan(a) * (X_OPP - sh.x);
+        return Math.max(-1200, Math.min(1740, y));
+      }
+      function muzzlePos(side){
+        var sh = shoulderPos(side, performance.now());
+        var a = aimAngleFor(side);
+        var dirx = side === 'you' ? Math.cos(a) : -Math.cos(a);
+        return { x: sh.x + dirx * 84, y: sh.y + Math.sin(a) * 84 };
+      }
+      function hitTestY(py, targetSide){
+        var now = performance.now();
+        var fallen = (targetSide === 'you' ? G.poseYou : G.poseOpp) === 'fallen';
+        var h = charFor(targetSide).h;
+        var base = fallen
+          ? [ { name:'head', dmg:45, y0:268, y1:304 }, { name:'body', dmg:25, y0:304, y1:348 }, { name:'legs', dmg:15, y0:348, y1:392 } ]
+          : [ { name:'head', dmg:45, y0:148, y1:202 }, { name:'body', dmg:25, y0:202, y1:318 }, { name:'legs', dmg:15, y0:318, y1:394 } ];
+        // altura do personagem escala as faixas a partir do chão; encolhida abaixa tudo
+        var shift = currentCrouchP(targetSide, now) * 30 * (fallen ? 0 : 1);
+        var bands = base.map(function(b){
+          return { name: b.name, dmg: b.dmg,
+            y0: GROUND - (GROUND - b.y0) * h + shift, y1: GROUND - (GROUND - b.y1) * h + shift };
+        });
+        for (var i = 0; i < bands.length; i++){
+          if (py >= bands[i].y0 && py < bands[i].y1) return bands[i];
+        }
+        return null;
+      }
+      // quão perto o tiro passou do corpo (para poeira e encolhida no quase-acerto)
+      function nearMissDist(py, targetSide){
+        var t = hitTestY(py + 34, targetSide) || hitTestY(py - 34, targetSide);
+        return t ? 34 : 999;
+      }
+      /* Reação de quem levou o tiro, conforme a região atingida:
+         tiro na perna derruba (e ele segue atirando do chão);
+         tronco e cabeça abalam o corpo por um instante. */
+      function applyHitEffect(targetSide, zone, now){
+        // registra a região: o boneco quadro a quadro reage com a sequência
+        // própria daquela região (tronco, cabeça, braço ou perna)
+        if (targetSide === 'you') G.hitZoneYou = zone; else G.hitZoneOpp = zone;
+        var targetX = targetSide === 'you' ? X_YOU : X_OPP;
+        if (zone === 'head'){
+          // tiro na cabeça arranca o chapéu, que voa e cai na rua — nas cores do personagem atingido
+          var fpH = fallJointP(currentFallP(targetSide, now), .10);
+          var hc = charFor(targetSide);
+          var hx = targetX + (targetSide === 'you' ? 1 : -1) * lerp(10, 28, fpH);
+          var hy = lerp(180, 280, fpH);
+          if (targetSide === 'you') G.hatYouUntil = now + 1250; else G.hatOppUntil = now + 1250;
+          effects.push({ kind:'hatfly', x: hx, y: hy - 22, born: now, until: now + 1250,
+            dir: targetSide === 'you' ? 1 : -1,
+            hat: hc.hat,
+            band: hc.band });
+        }
+        var hp = targetSide === 'you' ? G.hpYou : G.hpOpp;
+        if (hp <= 0) return; // caiu de vez: o desenho cuida do corpo no chão
+        if (zone === 'arm'){
+          // tiro no braço do gatilho: a mira treme por alguns segundos
+          if (targetSide === 'you') G.armYouUntil = now + 4500; else G.armOppUntil = now + 4500;
+          setStagger(targetSide, now, 350);
+          addText(targetX, 210, 'Braço ferido!', '#e8a33d');
+        } else if (zone === 'legs'){
+          var pose = targetSide === 'you' ? G.poseYou : G.poseOpp;
+          if (pose !== 'fallen'){
+            if (targetSide === 'you'){ G.poseYou = 'fallen'; G.poseYouAt = now; }
+            else { G.poseOpp = 'fallen'; G.poseOppAt = now; }
+            fallSound();
+            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now, until: now + 650 });
+            // segunda nuvem de poeira quando o corpo bate no chão, no fim da queda
+            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 400, until: now + 1050 });
+            addText(targetX, 238, 'Caiu!', '#e8a33d');
+          } else {
+            setStagger(targetSide, now, 400);
+          }
+        } else if (zone === 'body'){
+          // tiro no tronco: inclina para trás com força
+          setStagger(targetSide, now, 450);
+        } else if (zone === 'head'){
+          // tiro na cabeça: além do chapéu voando, atordoa — não consegue atirar por um instante
+          setStagger(targetSide, now, 700);
+          if (targetSide === 'you') G.stunYouUntil = now + 800; else G.stunOppUntil = now + 800;
+        }
+      }
+
+      /* ---------------- EFEITOS ---------------- */
+      function addTracer(side, impactY, hit){
+        var g = muzzlePos(side);
+        var sh = shoulderPos(side, performance.now());
+        var targetX = side === 'you' ? X_OPP : X_YOU;
+        var end;
+        if (hit){ end = { x: targetX, y: impactY }; }
+        else {
+          var edgeX = side === 'you' ? W - 4 : 4;
+          var slope = (impactY - sh.y) / (targetX - sh.x);
+          end = { x: edgeX, y: sh.y + slope * (edgeX - sh.x) };
+        }
+        effects.push({ kind:'tracer', x1:g.x, y1:g.y, x2:end.x, y2:end.y, until: performance.now()+110 });
+        effects.push({ kind:'flash', x:g.x, y:g.y, until: performance.now()+90 });
+        return end;
+      }
+      function addText(x, y, txt, color){
+        effects.push({ kind:'text', x:x, y:y, txt:txt, color:color, born: performance.now(), until: performance.now()+1100 });
+      }
+      function addRing(x, y, color){
+        effects.push({ kind:'ring', x:x, y:y, color:color, born: performance.now(), until: performance.now()+450 });
+      }
+
+      /* ---------------- TIRO ---------------- */
+      // side: quem atira ('you' = jogador local / P1; 'opp' = oponente / CPU / P2)
+      // remote: resultado já calculado pelo outro navegador (online)
+      // side: quem atira ('you' = jogador local; 'opp' = oponente / CPU)
+      // impactY: altura (px do canvas) em que o tiro viaja — é tudo que a mira controla
+      // remote: resultado já calculado pelo outro navegador (online)
+      function shoot(side, impactY, remote){
+        var now = performance.now();
+        var isYou = side === 'you';
+        var targetX = isYou ? X_OPP : X_YOU;
+        if (G.phase === 'countdown'){
+          // antes do FIRE!: o clique é simplesmente ignorado —
+          // não sai tiro e NÃO gasta bala nenhuma
+          if (isYou){
+            dryClick();
+            showMsg('Espere o FIRE! para atirar — clicar antes da hora não gasta bala.', 1600);
+          }
+          return;
+        }
+        if (G.phase !== 'fire') return;
+        // atordoado por tiro na cabeça: vê estrelas e não consegue atirar ainda
+        var stunUntil = isYou ? G.stunYouUntil : G.stunOppUntil;
+        if (now < stunUntil){ if (isYou) showMsg('Atordoado! O tiro na cabeça te deixou vendo estrelas…', 900); return; }
+        var last = isYou ? G.lastShotYou : G.lastShotOpp;
+        if (now - last < 320) return;
+        var ammo = isYou ? G.ammoYou : G.ammoOpp;
+        if (ammo <= 0){ if (isYou || G.mode !== 'online') dryClick(); return; }
+        if (isYou) { G.ammoYou--; G.lastShotYou = now; } else { G.ammoOpp--; G.lastShotOpp = now; }
+
+        // tempo de reação: primeiro tiro de cada um depois do FIRE!
+        if (isYou && !G.reactYou){ G.reactYou = Math.round(now - G.fireAt); }
+        if (!isYou && !G.reactOpp){ G.reactOpp = Math.round(now - G.fireAt); }
+        if (isYou && !remote){ G.stats.shots++; G.roundShots++; }
+
+        // quem caiu atira do chão, apoiado no braço: a mão fica menos firme
+        if (!remote){
+          var shooterPose = isYou ? G.poseYou : G.poseOpp;
+          if (shooterPose === 'fallen') impactY += (Math.random()*2-1) * 13;
+          // braço ferido: mesmo sentindo o tremor, o tiro sai um pouco torto
+          var shooterArmUntil = isYou ? G.armYouUntil : G.armOppUntil;
+          if (now < shooterArmUntil) impactY += (Math.random()*2-1) * 15;
+        }
+
+        var hit = null;
+        if (remote){ hit = remote.hit ? { dmg: remote.dmg, name: remote.zone } : null; }
+        else {
+          hit = hitTestY(impactY, isYou ? 'opp' : 'you');
+          // o braço estendido fica na frente do tronco: tiro que cruza a mão é tiro no braço
+          if (hit && hit.name === 'body'){
+            var tSide = isYou ? 'opp' : 'you';
+            var hp2 = handPos(tSide, now);
+            var shS = shoulderPos(side, now);
+            var yAtHand = shS.y + (impactY - shS.y) * ((hp2.x - shS.x) / (targetX - shS.x));
+            if (Math.abs(yAtHand - hp2.y) < 16) hit = { name:'arm', dmg:18 };
+          }
+        }
+
+        if (isYou){ G.recoilYouAt = now; G.cylRotYou += Math.PI / 3; } // coice + tambor gira uma câmara
+        else { G.recoilOppAt = now; G.cylRotOpp += Math.PI / 3; }
+        gunshot();
+        // garrafa voadora: se a altura do tiro cruza a garrafa no ar, ela quebra
+        if (G.bottle && G.bottle.state === 'fly'){
+          var bp9 = bottlePos(now);
+          if (bp9 && Math.abs(impactY - bp9.y) < 38){
+            G.bottle.state = 'gone'; G.bottle.broken = true;
+            bottleSound();
+            effects.push({ kind:'glass', x: bp9.x, y: bp9.y, born: now, until: now + 700 });
+            addText(bp9.x, bp9.y - 26, 'Garrafa! +100', '#1e7d32');
+            if (isYou) G.pointsYou += 100; else G.pointsOpp += 100;
+          }
+        }
+        var end = addTracer(side, impactY, hit);
+        var mz = muzzlePos(side);
+        // cápsula vazia voa para trás e cai no chão da rua, com o tilintar dela
+        effects.push({ kind:'shell', x: mz.x - (isYou ? 16 : -16), y: mz.y - 4, born: now, until: now + 2800, dir: isYou ? -1 : 1, pinged:false });
+        // fumaça do cano fica no ar e se desfaz devagar
+        effects.push({ kind:'smoke', x: mz.x, y: mz.y, born: now, until: now + 1700, dir: isYou ? 1 : -1 });
+        if (hit){
+          effects.push({ kind:'blood', x: targetX, y: impactY, born: now, until: now + 620, dir: isYou ? 1 : -1 });
+          if (isYou) G.hpOpp -= hit.dmg; else G.hpYou -= hit.dmg;
+          // morte: marca o instante para o corpo tombar animado, em vez de
+          // trocar de repente para o desenho de caído
+          var tSideD = isYou ? 'opp' : 'you';
+          if ((isYou ? G.hpOpp : G.hpYou) <= 0){
+            if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); }
+            if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); }
+            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1250 });
+          }
+          if (isYou && !remote){ G.stats.hits++; G.roundHits++; }
+          if (!isYou) flashDamage();
+          hitSound();
+          addText(targetX, impactY - 16, '-' + hit.dmg, '#ff6b57');
+          addRing(targetX, impactY, '#ffcf5c');
+          applyHitEffect(isYou ? 'opp' : 'you', hit.name, now);
+          // pontos: dano vale mais com tiro rápido e em região difícil
+          var react = isYou ? G.reactYou : G.reactOpp;
+          var pts = hit.dmg * 10 + (hit.name === 'head' ? 150 : hit.name === 'arm' ? 80 : 0)
+                  + (react && react <= 450 ? 100 : react && react <= 800 ? 50 : 0);
+          if (isYou) G.pointsYou += pts; else G.pointsOpp += pts;
+        } else {
+          addText(Math.max(56, Math.min(W - 56, end.x)), Math.max(40, end.y - 12), 'errou', '#8a6d3b');
+          if (end.y > GROUND - 6) effects.push({ kind:'dust', x: end.x, y: GROUND, born: now, until: now + 500 });
+          // quase acertou: levanta poeira no pé e o alvo se encolhe por reflexo
+          var tSide2 = isYou ? 'opp' : 'you';
+          if (nearMissDist(impactY, tSide2) < 900){
+            var tX2 = isYou ? X_OPP : X_YOU;
+            effects.push({ kind:'dust', x: tX2 + (Math.random()*30-15), y: GROUND, born: now, until: now + 600 });
+            if (tSide2 === 'you') G.crouchYouUntil = now + 620; else G.crouchOppUntil = now + 620;
+            addText(tX2, 128, 'Passou raspando!', '#b97e10');
+          }
+        }
+        renderHUD();
+        if (G.mode === 'online' && isYou && connOpen()){
+          sendMsg({ t:'shot', y: impactY / H, hit: !!hit, dmg: hit ? hit.dmg : 0, zone: hit ? hit.name : '' });
+        }
+        checkEnd();
+      }
+      function checkEnd(){
+        if (G.phase !== 'fire') return;
+        var deadYou = G.hpYou <= 0, deadOpp = G.hpOpp <= 0;
+        var outAmmo = G.ammoYou <= 0 && G.ammoOpp <= 0;
+        var timeUp = performance.now() >= G.deadline;
+        if (deadYou || deadOpp || outAmmo || timeUp){
+          var w;
+          if (deadYou && deadOpp) w = 'draw';
+          else if (deadOpp) w = 'you';
+          else if (deadYou) w = 'opp';
+          else w = 'draw'; // balas dos dois esgotadas (ou tempo esgotado) sem morte = empate
+          endRound(w, true);
+        }
+      }
+
+      function endRound(w, local){
+        if (G.endHandled) return;
+        G.endHandled = true;
+        G.phase = 'roundEnd';
+        G.winner = w;
+        if (w === 'you') G.scoreYou++; else if (w === 'opp') G.scoreOpp++;
+        renderHUD();
+        if (G.mode === 'online' && G.role === 'host' && connOpen()){
+          sendMsg({ t:'roundEnd', winner: w === 'you' ? 'host' : (w === 'opp' ? 'guest' : 'draw'), round: G.round, sH: G.scoreYou, sG: G.scoreOpp });
+        }
+        if (G.reactYou && (!G.stats.bestReact || G.reactYou < G.stats.bestReact)) G.stats.bestReact = G.reactYou;
+        var fmtR = function(ms){ return (ms/1000).toFixed(2).replace('.', ',') + 's'; };
+        var rs = 'Reação nesta rodada: ';
+        rs += G.reactYou ? 'você ' + fmtR(G.reactYou) : 'você não atirou';
+        rs += ' · oponente ' + (G.reactOpp ? fmtR(G.reactOpp) : 'não atirou');
+        el('stReactRound').textContent = rs;
+        renderHUD();
+        var matchOver = G.scoreYou >= WIN_SCORE || G.scoreOpp >= WIN_SCORE;
+        if (w === 'you') winJingle();
+        // a passagem fica guardada: o botão NEXT ROUND da tela
+        // ROUND COMPLETE chama a mesma função, sem esperar o timer
+        G.doAdvance = function(){
+          G.advanceTimer = null;
+          if (matchOver){ endMatch(); return; }
+          G.round++;
+          if (G.mode === 'online'){
+            if (G.role === 'host'){
+              var at = performance.now() + 1200; // início agendado: os dois relógios contam juntos
+              if (connOpen()) sendMsg({ t:'start', round: G.round, at: at });
+              startCountdownAt(at);
+            }
+            else showMsg('Preparando a próxima rodada…', 2500);
+          } else {
+            startCountdown();
+          }
+        };
+        G.advanceTimer = setTimeout(G.doAdvance, 4500);
+      }
+
+      function endMatch(){
+        G.phase = 'matchEnd';
+        var youWon = G.scoreYou > G.scoreOpp;
+        showMsg(youWon ? '🏆 Você venceu o duelo!' : 'O oponente venceu o duelo. Revanche?', 6000);
+        renderHUD();
+        if (G.mode === 'online' && G.role === 'host') el('startOnlineBtn').disabled = !connOpen();
+        if (G.mode === 'online' && G.role === 'host') el('startOnlineBtn').textContent = 'Jogar de novo';
+      }
+
+      /* ---------------- CONTAGEM ----------------
+         A contagem é dirigida pelo relógio da partida (loop do jogo),
+         não por setTimeout: os passos saem sempre de countT0 + n×600 ms.
+         No online, o anfitrião agenda o início num instante do relógio
+         dele e o convidado converte esse instante para o relógio local
+         usando o desvio medido na conexão — os dois contam juntos. */
+      function clearCount(){ G.countStep = -1; }
+      function startCountdown(){ startCountdownAt(performance.now() + 350); }
+      function startCountdownAt(t0){
+        G.phase = 'countdown'; G.endHandled = false; G.winner = null;
+        G.hpYou = 100; G.hpOpp = 100; G.ammoYou = 6; G.ammoOpp = 6;
+        G.lastShotYou = 0; G.lastShotOpp = 0;
+        G.reactYou = 0; G.reactOpp = 0;
+        G.poseYou = 'stand'; G.poseOpp = 'stand'; G.poseYouAt = 0; G.poseOppAt = 0;
+        G.staggerYouUntil = 0; G.staggerOppUntil = 0;
+        G.recoilYouAt = 0; G.recoilOppAt = 0; G.hatYouUntil = 0; G.hatOppUntil = 0;
+        G.crouchYouUntil = 0; G.crouchOppUntil = 0;
+        G.armYouUntil = 0; G.armOppUntil = 0; G.stunYouUntil = 0; G.stunOppUntil = 0;
+        G.deathYouAt = 0; G.deathOppAt = 0; G.staggerYouFrom = 0; G.staggerOppFrom = 0;
+        G.hitZoneYou = ''; G.hitZoneOpp = '';
+        G.goSent = false; G.guestGo = false; G.remoteHover = false; G.countReady = false;
+        // nova rodada: os dois entram andando e recarregam o tambor
+        G.walkT0 = t0 - 350;
+        G.reloadT0 = t0;
+        reloadSounds(); roundSound();
+        // garrafa voadora da rodada (como a rodada bônus do vídeo): cruza a
+        // cena em arco durante o tiroteio; acertar ela quebra e dá pontos
+        G.bottle = { state:'wait', at: t0 + 2600 + Math.random()*2500, born:0, broken:false };
+        G.roundShots = 0; G.roundHits = 0;
+        for (var ri = 0; ri < 3; ri++){
+          effects.push({ kind:'shell', x: X_YOU - 20 - ri * 7, y: 330, born: t0 + ri * 130, until: t0 + ri * 130 + 2800, dir: -1, pinged:false });
+          effects.push({ kind:'shell', x: X_OPP + 20 + ri * 7, y: 330, born: t0 + ri * 130, until: t0 + ri * 130 + 2800, dir: 1, pinged:false });
+        }
+        el('stReactRound').textContent = '';
+        G.aimOpp = { x:.5, y:.45 };
+        if (G.mode === 'cpu'){
+          // campanha como no vídeo: rodada 2 é o pistoleiro de chapéu
+          // cinza e camisa preta; rodada 3, a pistoleira de chapéu preto com flor
+          if (G.round === 2) G.charOpp = 'cass';
+          else if (G.round === 3) G.charOpp = 'vera';
+          setupAI();
+        }
+        hideMsg();
+        G.countT0 = t0; G.countStep = -1;
+        G.count = 'PREPAREM-SE';
+        renderHUD();
+      }
+      function processCountdown(now){
+        if (G.phase !== 'countdown') return;
+        var elapsed = now - G.countT0;
+        if (elapsed < 0){ if (G.count !== 'PREPAREM-SE'){ G.count = 'PREPAREM-SE'; } return; }
+        var step = Math.floor(elapsed / 600); // passos de 600 ms, como no duelo clássico
+        if (step === G.countStep) return;
+        G.countStep = step;
+        var steps = ['3','2','1','FIRE!'];
+        if (step < 3){
+          G.count = steps[step];
+          countBeep(false);
+        } else {
+          G.count = 'FIRE!';
+          countBeep(true);
+          G.phase = 'fire';
+          G.fireAt = G.countT0 + 1800;
+          G.deadline = G.fireAt + ROUND_TIME;
+          setTimeout(function(){ if (G.count === 'FIRE!') G.count = ''; }, 650);
+        }
+        renderHUD();
+      }
+
+      function startMatch(){
+        G.scoreYou = 0; G.scoreOpp = 0; G.round = 1;
+        G.pointsYou = 0; G.pointsOpp = 0;
+        G.stats = { shots: 0, hits: 0, bestReact: 0 };
+        el('roundLbl').textContent = 'Rodada 1';
+        startCountdown();
+      }
+
+      /* Garrafa voadora: nasce de um lado da cena, cruza em arco por
+         cima dos pistoleiros em ~1,5 s, girando, e cai do outro lado. */
+      function bottlePos(now){
+        if (!G.bottle || G.bottle.state !== 'fly') return null;
+        var p = (now - G.bottle.born) / 1500;
+        if (p < 0 || p > 1) return null;
+        var x = lerp(X_OPP + 30, X_YOU - 30, p);
+        var y = 300 - Math.sin(p * Math.PI) * 165 + p * 40;
+        return { x: x, y: y, rot: p * 9, p: p };
+      }
+      function updateBottle(now){
+        if (!G.bottle) return;
+        if (G.bottle.state === 'wait' && G.phase === 'fire' && now >= G.bottle.at){
+          G.bottle.state = 'fly'; G.bottle.born = now; bottleThrowSound();
+        } else if (G.bottle.state === 'fly' && now - G.bottle.born > 1500){
+          G.bottle.state = 'gone';
+          effects.push({ kind:'dust', x: X_YOU - 30, y: GROUND, born: now, until: now + 400 });
+        }
+      }
+      function drawBottle(now){
+        var bp = bottlePos(now);
+        if (!bp) return;
+        ctx.save(); ctx.translate(bp.x, bp.y); ctx.rotate(bp.rot);
+        ctx.fillStyle = '#7a4a21'; roundRect(-4, -13, 8, 20, 3); ctx.fill();
+        ctx.fillStyle = '#5d3817'; roundRect(-2.5, -19, 5, 7, 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-3, -10, 2.4, 14);
+        ctx.restore();
+      }
+
+      /* ---------------- IA (computador) ---------------- */
+      function setupAI(){
+        // cada personagem tem velocidade e erro próprios; a dificuldade escala os dois
+        var base = charFor('opp').ai;
+        var d = DIFF[el('difficulty').value] || DIFF.normal;
+        var lvl = Math.min(G.scoreYou, 3); // fica mais rápido conforme você vence rodadas
+        ai.react = Math.max(240, Math.round(base.react * (d.react / 620)) - lvl * 70);
+        ai.interval = Math.max(280, Math.round(base.interval * (d.interval / 560)) - lvl * 50);
+        ai.spread = Math.max(20, Math.round(base.spread * (d.spread / 62)) - lvl * 6);
+        ai.nextShot = 0; ai.nextWander = 0;
+        ai.aimTarget = { x: .26, y: .5 };
+      }
+      function updateAI(now){
+        if (G.phase !== 'fire') return;
+        if (!ai.nextShot) ai.nextShot = now + ai.react + Math.random()*250;
+        if (now > ai.nextWander){
+          ai.nextWander = now + 260 + Math.random()*220;
+          // a altura da mira vagueia pelo seu pistoleiro, da cabeça às pernas
+          ai.aimTarget = { x: .26, y: (268 + (Math.random()*150-75)) / H };
+        }
+        // aproxima a altura da mira do alvo suavemente (só a altura existe)
+        G.aimOpp.y += (ai.aimTarget.y - G.aimOpp.y) * .09;
+        if (now >= ai.nextShot && G.ammoOpp > 0){
+          ai.nextShot = now + ai.interval + Math.random()*260;
+          var sy = G.aimOpp.y * H + (Math.random()*2-1) * ai.spread * .7;
+          shoot('opp', sy);
+        }
+      }
+
+      /* ---------------- DESENHO ---------------- */
+      function lerp(a, b, t){ return a + (b - a) * t; }
+      function lerpPt(a, b, t){ return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]; }
+      function limb(x1, y1, x2, y2, color, w){
+        ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      function limb2(a, b, c, color, w){
+        ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.stroke();
+      }
+      function drawBoot(b, color){
+        ctx.save(); ctx.translate(b[0], b[1]);
+        ctx.fillStyle = color;
+        roundRect(-7, -7, 33, 11, 4); ctx.fill();
+        roundRect(-7, 1, 10, 7, 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(43,29,18,.55)'; ctx.lineWidth = 1.6;
+        roundRect(-7, -7, 33, 11, 4); ctx.stroke();
+        ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(-7, -3); ctx.lineTo(-14, -6); ctx.stroke();
+        ctx.fillStyle = '#c9a227'; ctx.beginPath(); ctx.arc(-15, -6, 2.4, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+      function drawRevolver(hand, angle, hammerP, cylRot){
+        ctx.save(); ctx.translate(hand[0], hand[1]); ctx.rotate(angle);
+        // martelo: levanta ao armar e cai no disparo (hammerP: 0 em repouso, 1 armado)
+        ctx.save(); ctx.translate(-6, -5); ctx.rotate(-.5 - (hammerP || 0) * .55);
+        ctx.fillStyle = '#596069'; roundRect(-2.5, -6, 5.5, 8, 2); ctx.fill();
+        ctx.restore();
+        ctx.save(); ctx.translate(-1, 3); ctx.rotate(.38);
+        ctx.fillStyle = '#6e4525'; roundRect(-3.5, 0, 8, 15, 3); ctx.fill();
+        ctx.strokeStyle = 'rgba(43,29,18,.5)'; ctx.lineWidth = 1.2; roundRect(-3.5, 0, 8, 15, 3); ctx.stroke();
+        ctx.restore();
+        var steel = ctx.createLinearGradient(0, -7, 0, 5);
+        steel.addColorStop(0, '#e3e7ee'); steel.addColorStop(.55, '#aeb4bf'); steel.addColorStop(1, '#7e858f');
+        ctx.fillStyle = steel; roundRect(-4, -4.5, 18, 8, 2.5); ctx.fill();
+        roundRect(12, -3.2, 26, 5.6, 2.4); ctx.fill();
+        ctx.fillStyle = 'rgba(43,29,18,.35)'; ctx.fillRect(14, -4.6, 22, 1.6);
+        ctx.fillStyle = '#596069'; roundRect(33, -6.4, 3.4, 3.4, 1); ctx.fill();
+        ctx.fillStyle = '#878e99'; roundRect(0, -6.8, 12, 13, 3); ctx.fill();
+        // tambor visível com as 6 câmaras — gira uma posição a cada tiro
+        ctx.fillStyle = 'rgba(43,29,18,.45)';
+        for (var ci2 = 0; ci2 < 6; ci2++){
+          var ca = (cylRot || 0) + ci2 * Math.PI / 3;
+          ctx.beginPath(); ctx.arc(6 + Math.cos(ca) * 3.6, Math.sin(ca) * 3.6, 1.5, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.fillStyle = '#6d747f'; roundRect(-7, -7.5, 5.5, 6, 2); ctx.fill();
+        ctx.restore();
+      }
+      function drawHead(h, colors, tilt, hatOff, expr, blink){
+        ctx.save(); ctx.translate(h[0], h[1]); ctx.rotate(tilt);
+        ctx.fillStyle = colors.skinDark; roundRect(-5, 9, 12, 15, 4); ctx.fill();
+        ctx.fillStyle = colors.hair; ctx.beginPath(); ctx.arc(-4, -4, 16.5, 0, Math.PI*2); ctx.fill();
+        var skin = ctx.createRadialGradient(3, -5, 4, 0, 0, 21);
+        skin.addColorStop(0, colors.skin); skin.addColorStop(1, colors.skinDark);
+        ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(1, 0, 18.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(8, 8, 10, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(18.5, 2, 5.5, 3.6, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = colors.skinDark; ctx.beginPath(); ctx.arc(-7, 0, 5, 0, Math.PI*2); ctx.fill();
+        // rosto reage: dor (sobrancelha caída e boca aberta), atordoado (olho em X),
+        // comemoração (sorriso); em repouso, o olhar firme do duelo
+        if (colors.beard){
+          ctx.fillStyle = colors.hair; ctx.beginPath(); ctx.ellipse(10, 10, 8.5, 6.5, .15, 0, Math.PI); ctx.fill();
+        }
+        if (expr === 'stun'){
+          ctx.strokeStyle = '#241811'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(6.5, -6); ctx.lineTo(12.5, 0); ctx.moveTo(12.5, -6); ctx.lineTo(6.5, 0); ctx.stroke();
+          ctx.beginPath(); ctx.ellipse(14, 8, 3.2, 4, 0, 0, Math.PI*2); ctx.stroke();
+        } else if (expr === 'hurt'){
+          ctx.fillStyle = '#241811'; ctx.beginPath(); ctx.arc(9.5, -3.5, 2.3, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = colors.hair; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(4, -6.5); ctx.lineTo(15, -9.5); ctx.stroke();
+          ctx.fillStyle = '#5d2418'; ctx.beginPath(); ctx.ellipse(14.5, 8.5, 3.4, 4.4, 0, 0, Math.PI*2); ctx.fill();
+        } else if (expr === 'win'){
+          ctx.fillStyle = '#241811'; ctx.beginPath(); ctx.arc(9.5, -3.5, 2.3, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = '#5d3418'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.arc(11, 5, 6, .25, Math.PI * .8); ctx.stroke();
+        } else if (blink){
+          // piscada: o olho fecha por um instante — detalhe pequeno que tira o ar de boneco
+          ctx.strokeStyle = '#241811'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(6, -3.5); ctx.lineTo(13, -3.5); ctx.stroke();
+          ctx.strokeStyle = colors.hair; ctx.lineWidth = 2.6;
+          ctx.beginPath(); ctx.moveTo(4, -8.5); ctx.lineTo(15, -7.5); ctx.stroke();
+        } else {
+          ctx.fillStyle = '#241811'; ctx.beginPath(); ctx.arc(9.5, -3.5, 2.3, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle = colors.hair; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(4, -8.5); ctx.lineTo(15, -7.5); ctx.stroke();
+        }
+        if (!colors.beard) { ctx.fillStyle = colors.hair; ctx.beginPath(); ctx.ellipse(13, 9.5, 6.5, 2.7, .1, 0, Math.PI*2); ctx.fill(); }
+        // lenço azul cobrindo nariz e boca, como o do jogador no vídeo
+        if (colors.faceCover){
+          ctx.fillStyle = colors.band;
+          ctx.beginPath(); ctx.ellipse(11, 6, 13.5, 10.5, .1, 0, Math.PI); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(-2, 2); ctx.lineTo(20, 4); ctx.lineTo(16, 17); ctx.lineTo(2, 16); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(0, 9, 18, 2.4);
+        }
+        ctx.fillStyle = 'rgba(60,35,10,.16)'; ctx.beginPath(); ctx.ellipse(2, -9, 18, 5.5, 0, 0, Math.PI); ctx.fill();
+        if (!hatOff){
+        // estilos de chapéu por personagem: aba larga, copa alta, aba reta ou boné de couro
+        var hs = colors.hatStyle || 'wide';
+        var crownH = hs === 'tall' ? 31 : hs === 'cap' ? 15 : 23;
+        var brimR = hs === 'flat' ? 42 : hs === 'cap' ? 24 : 35;
+        var hat = ctx.createLinearGradient(0, -46, 0, -12);
+        hat.addColorStop(0, colors.hat); hat.addColorStop(1, colors.hatDark);
+        ctx.fillStyle = hat; roundRect(-18, -14 - crownH, 37, crownH, 8); ctx.fill();
+        ctx.fillStyle = 'rgba(43,29,18,.28)'; ctx.beginPath(); ctx.ellipse(0, -8 - crownH, 12, 3.4, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = colors.band; roundRect(-18, -24.5, 37, 7, 3); ctx.fill();
+        ctx.fillStyle = hat; ctx.beginPath(); ctx.ellipse(1, -14.5, brimR, hs === 'flat' ? 5 : 7.6, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = 'rgba(43,29,18,.4)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.ellipse(1, -14.5, brimR, hs === 'flat' ? 5 : 7.6, 0, 0, Math.PI*2); ctx.stroke();
+        // flor vermelha no chapéu preto, como a da oponente da rodada 3 no vídeo
+        if (hs === 'flower'){
+          ctx.fillStyle = '#d42a4a';
+          for (var fp2 = 0; fp2 < 5; fp2++){ var fa = fp2 / 5 * Math.PI * 2; ctx.beginPath(); ctx.arc(24 + Math.cos(fa) * 4.6, -30 + Math.sin(fa) * 4.6, 3.6, 0, Math.PI*2); ctx.fill(); }
+          ctx.fillStyle = '#f2c14e'; ctx.beginPath(); ctx.arc(24, -30, 2.6, 0, Math.PI*2); ctx.fill();
+        }
+        }
+        ctx.restore();
+      }
+      function drawDead(colors){
+        var OUT = 'rgba(43,29,18,.8)';
+        limb2([-40,372], [-82,378], [-120,383], OUT, 16); limb2([-40,372], [-82,378], [-120,383], colors.pantsDark, 12);
+        limb2([-36,380], [-74,386], [-108,388], OUT, 16); limb2([-36,380], [-74,386], [-108,388], colors.pants, 12);
+        drawBoot([-124,382], colors.boots); drawBoot([-112,387], colors.boots);
+        limb(-42, 374, -2, 368, OUT, 38); limb(-42, 374, -2, 368, colors.coat, 31);
+        limb(-38, 371, 2, 366, colors.vest, 13);
+        limb2([-4,372], [22,382], [46,386], OUT, 12); limb2([-4,372], [22,382], [46,386], colors.coat, 9);
+        ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(48, 386, 5.6, 0, Math.PI*2); ctx.fill();
+        drawRevolver([56, 388], .9);
+        ctx.fillStyle = colors.hair; ctx.beginPath(); ctx.arc(20, 372, 16, 0, Math.PI*2); ctx.fill();
+        var skin = ctx.createRadialGradient(26, 366, 4, 24, 372, 19);
+        skin.addColorStop(0, colors.skin); skin.addColorStop(1, colors.skinDark);
+        ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(25, 373, 17, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#241811'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(30, 371); ctx.lineTo(38, 371); ctx.stroke();
+        ctx.save(); ctx.translate(58, 390); ctx.rotate(.45);
+        ctx.fillStyle = colors.hat; ctx.beginPath(); ctx.ellipse(0, 0, 29, 6.4, 0, 0, Math.PI*2); ctx.fill();
+        roundRect(-13, -15, 27, 15, 6); ctx.fill();
+        ctx.fillStyle = colors.band; roundRect(-13, -7, 27, 5, 2); ctx.fill();
+        ctx.restore();
+      }
+      function drawCowboy(cx, flip, colors, angle, fallP, stag, down, now, seed, hatOff, extra){
+        extra = extra || {};
+        ctx.save();
+        ctx.translate(cx, 0);
+        if (flip) ctx.scale(-1, 1);
+        if (down){ drawDead(colors); ctx.restore(); return; }
+        if (extra.hop) ctx.translate(0, -extra.hop); // pulinho de comemoração
+        var dP = extra.deathP || 0;
+        if (dP > 0){
+          // tombo da morte: o corpo inteiro gira para trás em volta dos pés,
+          // acelerando como gravidade e quicando de leve ao bater no chão —
+          // só depois de deitado é que entra o desenho do corpo no chão
+          ctx.translate(0, GROUND); ctx.rotate(-deathAngle(dP)); ctx.translate(0, -GROUND);
+        }
+        // altura própria do personagem, escalada a partir do chão
+        var hh = colors.h || 1;
+        ctx.translate(0, GROUND * (1 - hh)); ctx.scale(1, hh);
+        var S = { hip:[0,302], shoulder:[8,230], head:[10,180], kneeF:[28,350], bootF:[34,385], kneeB:[-22,346], bootB:[-32,385], elbowR:[-16,272], handR:[-9,308] };
+        var F = { hip:[-34,354], shoulder:[20,316], head:[28,280], kneeF:[-84,366], bootF:[-124,381], kneeB:[-72,379], bootB:[-110,387], elbowR:[36,350], handR:[-4,386] };
+        var C = { hip:[2,326], shoulder:[12,256], head:[14,206], kneeF:[42,350], bootF:[36,386], kneeB:[-32,350], bootB:[-40,386], elbowR:[-10,294], handR:[-4,328] };
+        var j = {}, k;
+        // cada junta cai no seu tempo (fallJointP): nada de deslizar tudo junto em linha reta
+        for (k in S) j[k] = lerpPt(S[k], F[k], fallJointP(fallP, FALL_LAG[k] || 0));
+        // morrendo: os joelhos cedem antes do tombo
+        if (dP > 0) for (k in j) j[k] = lerpPt(j[k], C[k], dP * .45 * (1 - fallP));
+        // agachada do quase-acerto mistura por cima da pose atual
+        var cp = extra.crouchP || 0;
+        if (cp > 0 && fallP < 1) for (k in j) j[k] = lerpPt(j[k], C[k], cp * (1 - fallP));
+        // amortecimento ao bater no chão depois da queda de perna: o corpo afunda e volta
+        if (extra.squash){
+          j.hip[1] += extra.squash * 3; j.shoulder[1] += extra.squash * 5; j.head[1] += extra.squash * 6;
+        }
+        // entrada andando: pernas alternam e o corpo balança até chegar ao lugar
+        if (extra.walkSwing){
+          var ws = Math.sin(now / 95 + seed) * extra.walkSwing;
+          j.kneeF[0] += ws * 13; j.bootF[1] -= Math.max(0, ws) * 7;
+          j.kneeB[0] -= ws * 13; j.bootB[1] -= Math.max(0, -ws) * 7;
+          j.hip[1] -= Math.abs(Math.cos(now / 95 + seed)) * 3 * extra.walkSwing;
+          j.hip[0] += extra.walkSwing * 2; j.head[0] += extra.walkSwing * 3.5; // inclina para a frente andando
+        }
+        // respiração: peito e cabeça sobem e descem num ritmo calmo (some ao cair e ao morrer)
+        var sway = Math.sin(now / 650 + seed) * 1.3 * (1 - fallP) * (1 - dP);
+        var breath = Math.sin(now / 1150 + seed * 2) * 1.6 * (1 - fallP) * (1 - dP);
+        j.shoulder[1] += sway + breath; j.head[1] += sway * .7 + breath * .8;
+        j.shoulder[0] -= stag * 8; j.head[0] -= stag * 11; j.head[1] += stag * 3;
+        // o coice empurra o corpo inteiro, não só o braço
+        var rc = extra.recoilP || 0;
+        if (rc > 0){ j.shoulder[0] -= rc * 4 * (1 - fallP); j.head[0] -= rc * 5 * (1 - fallP); j.shoulder[1] -= rc * 2; }
+        // o tronco acompanha um pouco a altura da mira: mirar para baixo curva os ombros
+        var lean = Math.sin(angle) * (1 - fallP) * (1 - dP);
+        j.shoulder[1] += lean * 2.5; j.head[1] += lean * 2;
+        // morrendo, o braço da arma perde a força e a arma aponta para o chão
+        if (dP > 0) angle = lerp(angle, .95, dP);
+        var OUT = 'rgba(43,29,18,.8)';
+        limb2(j.hip, j.kneeB, j.bootB, OUT, 17); limb2(j.hip, j.kneeB, j.bootB, colors.pantsDark, 12.5);
+        drawBoot(j.bootB, colors.boots);
+        var shBack = [j.shoulder[0] - 7, j.shoulder[1] + 5];
+        limb2(shBack, j.elbowR, j.handR, OUT, 12.5); limb2(shBack, j.elbowR, j.handR, colors.coatDark, 9);
+        ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(j.handR[0], j.handR[1], 5.6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = colors.coatDark;
+        ctx.beginPath();
+        ctx.moveTo(j.hip[0] - 12, j.hip[1] - 16);
+        ctx.lineTo(j.hip[0] - 27 - fallP * 6, j.hip[1] + 26 - fallP * 18);
+        ctx.lineTo(j.hip[0] - 6, j.hip[1] + 12);
+        ctx.closePath(); ctx.fill();
+        limb2(j.hip, j.kneeF, j.bootF, OUT, 17); limb2(j.hip, j.kneeF, j.bootF, colors.pants, 12.5);
+        drawBoot(j.bootF, colors.boots);
+        if (colors.dress){
+          // vestido preto: botas altas pretas nas canelas e saia sobre o quadril
+          limb2(lerpPt(j.kneeF, j.bootF, .35), j.bootF, '#0d0b0d', 13.5);
+          limb2(lerpPt(j.kneeB, j.bootB, .35), j.bootB, '#0d0b0d', 13.5);
+          drawBoot(j.bootF, colors.boots); drawBoot(j.bootB, colors.boots);
+          ctx.fillStyle = colors.coat;
+          ctx.beginPath();
+          ctx.moveTo(j.shoulder[0] - 6, j.shoulder[1] + 26);
+          ctx.lineTo(j.shoulder[0] + 14, j.shoulder[1] + 26);
+          ctx.lineTo(j.hip[0] + 24, j.hip[1] + 22);
+          ctx.lineTo(j.hip[0] - 24, j.hip[1] + 22);
+          ctx.closePath(); ctx.fill();
+        }
+        limb(j.hip[0], j.hip[1], j.shoulder[0], j.shoulder[1], OUT, 41);
+        limb(j.hip[0], j.hip[1], j.shoulder[0], j.shoulder[1], colors.coat, 34);
+        limb(j.hip[0] + 7, j.hip[1] - 3, j.shoulder[0] + 7, j.shoulder[1] + 3, colors.vest, 15);
+        // botões de latão do colete
+        ctx.fillStyle = '#d9a92c';
+        [.22, .48, .74].forEach(function(t){
+          var bp = lerpPt([j.hip[0] + 7, j.hip[1] - 3], [j.shoulder[0] + 7, j.shoulder[1] + 3], t);
+          ctx.beginPath(); ctx.arc(bp[0], bp[1], 2.1, 0, Math.PI*2); ctx.fill();
+        });
+        // vinco e sombra da perna da frente (calça com volume)
+        limb2([j.hip[0] + 4, j.hip[1] + 6], [j.kneeF[0] + 3, j.kneeF[1]], [j.bootF[0] + 2, j.bootF[1] - 4], colors.pantsDark, 3.5);
+        var neck = lerpPt(j.shoulder, j.head, .52);
+        ctx.fillStyle = colors.shirt;
+        ctx.beginPath(); ctx.moveTo(neck[0] - 3, neck[1] - 8); ctx.lineTo(neck[0] + 10, neck[1] - 4); ctx.lineTo(neck[0] + 2, neck[1] + 9); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = colors.band;
+        ctx.beginPath(); ctx.moveTo(neck[0] - 6, neck[1] - 9); ctx.lineTo(neck[0] + 11, neck[1] - 7); ctx.lineTo(neck[0] + 3, neck[1] + 5); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(neck[0] + 3, neck[1] - 5, 3.6, 0, Math.PI*2); ctx.fill(); // nó do lenço
+        ctx.save(); ctx.translate(j.hip[0], j.hip[1]);
+        ctx.fillStyle = '#5a3a1e'; roundRect(-18, -9, 37, 13, 4); ctx.fill();
+        ctx.fillStyle = '#d9a92c'; roundRect(7, -6, 10, 8, 2); ctx.fill();
+        // cartuchos de latão enfiados no cinto
+        for (var ci = 0; ci < 4; ci++){
+          ctx.fillStyle = '#c9972f'; roundRect(-15 + ci * 6, -6.5, 3.6, 8, 1.2); ctx.fill();
+          ctx.fillStyle = '#8a6d1f'; ctx.fillRect(-15 + ci * 6, -6.5, 3.6, 2);
+        }
+        ctx.fillStyle = '#4a2f1a'; roundRect(-25, 1, 10, 23, 4); ctx.fill();
+        // cabo da arma reserva aparecendo no coldre
+        ctx.save(); ctx.translate(-20, 0); ctx.rotate(.32);
+        ctx.fillStyle = '#6e4525'; roundRect(-3, -7, 6.5, 10, 2.5); ctx.fill();
+        ctx.restore();
+        ctx.restore();
+        var blink = !extra.expr && dP <= 0 && ((now / 1000 + seed * 1.93) % 3.6) < .09;
+        drawHead(j.head, colors, fallJointP(fallP, .18) * .5 + stag * .22 + dP * .55, hatOff, extra.expr || '', blink);
+        var dir = [Math.cos(angle), Math.sin(angle)], perp = [-dir[1], dir[0]];
+        var elbowG = [j.shoulder[0] + dir[0] * 24 + perp[0] * 6, j.shoulder[1] + dir[1] * 24 + perp[1] * 6];
+        var handG = [j.shoulder[0] + dir[0] * 48 + perp[0] * 3, j.shoulder[1] + dir[1] * 48 + perp[1] * 3];
+        limb2(j.shoulder, elbowG, handG, OUT, 14.5);
+        limb2(j.shoulder, elbowG, handG, colors.coat, 10.5);
+        ctx.fillStyle = colors.shirt; ctx.beginPath(); ctx.arc(handG[0] - dir[0] * 6, handG[1] - dir[1] * 6, 6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(handG[0], handG[1], 6.4, 0, Math.PI*2); ctx.fill();
+        drawRevolver(handG, angle, extra.hammerP || 0, extra.cylRot || 0);
+        ctx.restore();
+      }
+      /* ============================================================
+         BILLY POEIRA — SPRITES QUADRO A QUADRO (arte própria)
+         Em vez de uma pose só girada/esticada, cada ação é uma
+         sequência de poses desenhadas uma a uma (quadros-chave), e o
+         motor abaixo interpola ENTRE quadros vizinhos com a curva
+         certa de cada trecho: gravidade acelerando na queda, impacto
+         seco ao bater no chão, quique amortecido ao assentar.
+         Os outros pistoleiros continuam no desenho antigo até serem
+         refeitos neste mesmo molde, um por um.
+         Pose = mapa de juntas no espaço local do boneco (chão ≈ 392):
+         hip, sho (ombro), head, kneeF/bootF (perna da frente),
+         kneeB/bootB (perna de trás), elbL/handL (braço de apoio),
+         elbG/handG (braço da arma; null = segue a mira do mouse),
+         gunAng (ângulo da arma; null = segue a mira), headTilt.
+         ============================================================ */
+      var B_JOINTS = ['hip','sho','head','kneeF','bootF','kneeB','bootB','elbL','handL','elbG','handG'];
+      var B_STAND = { hip:[0,302], sho:[8,230], head:[10,180], kneeF:[28,350], bootF:[34,385], kneeB:[-22,346], bootB:[-32,385], elbL:[-16,272], handL:[-9,308], elbG:null, handG:null, gunAng:null, headTilt:0 };
+      function bPose(base, over){ var p = {}, k; for (k in base) p[k] = base[k]; if (over) for (k in over) p[k] = over[k]; return p; }
+      var B_GROUND = bPose(B_STAND, { hip:[-34,354], sho:[20,316], head:[28,280], kneeF:[-84,366], bootF:[-124,381], kneeB:[-72,379], bootB:[-110,387], elbL:[4,350], handL:[-16,385], headTilt:.12 });
+      var B_DEAD = bPose(B_STAND, { hip:[-40,374], sho:[-2,368], head:[25,373], kneeF:[-82,378], bootF:[-120,383], kneeB:[-74,386], bootB:[-108,388], elbL:[22,382], handL:[46,386], elbG:[20,380], handG:[48,386], gunAng:.9, headTilt:1.3 });
+      var B_CROUCH = bPose(B_STAND, { hip:[2,326], sho:[12,256], head:[14,206], kneeF:[42,350], bootF:[36,386], kneeB:[-32,350], bootB:[-40,386], elbL:[-10,294], handL:[-4,328], headTilt:.1 });
+
+      /* PARADO — respiração e troca de peso, em ciclo de 2,6 s */
+      var B_IDLE = { dur:2600, loop:true, frames:[
+        { t:0,    ease:'io', pose:B_STAND },
+        { t:900,  ease:'io', pose:bPose(B_STAND, { sho:[8,227.5], head:[10,178], hip:[0,301] }) },
+        { t:1700, ease:'io', pose:B_STAND },
+        { t:2150, ease:'io', pose:bPose(B_STAND, { hip:[-3,302], sho:[5,230], head:[8,180], kneeF:[25,350], kneeB:[-25,346] }) },
+        { t:2600, ease:'io', pose:B_STAND }
+      ]};
+      /* ANDANDO — ciclo de passada de 760 ms (entrada da rodada) */
+      var B_WALK = { dur:760, loop:true, frames:[
+        { t:0,   ease:'io', pose:bPose(B_STAND, { hip:[2,299], sho:[10,227], head:[13,177], kneeF:[42,342], bootF:[54,374], kneeB:[-16,348], bootB:[-34,385], elbL:[-24,276], handL:[-18,314] }) },
+        { t:190, ease:'io', pose:bPose(B_STAND, { hip:[0,303], sho:[8,230], head:[11,180], kneeF:[24,352], bootF:[36,385], kneeB:[-24,350], bootB:[-38,382] }) },
+        { t:380, ease:'io', pose:bPose(B_STAND, { hip:[2,299], sho:[10,227], head:[13,177], kneeF:[18,346], bootF:[26,378], kneeB:[-38,340], bootB:[-56,372], elbL:[-8,268], handL:[-2,300] }) },
+        { t:570, ease:'io', pose:bPose(B_STAND, { hip:[0,303], sho:[8,230], head:[11,180], kneeF:[26,350], bootF:[34,384], kneeB:[-20,352], bootB:[-30,385] }) },
+        { t:760, ease:'io', pose:bPose(B_STAND, { hip:[2,299], sho:[10,227], head:[13,177], kneeF:[42,342], bootF:[54,374], kneeB:[-16,348], bootB:[-34,385], elbL:[-24,276], handL:[-18,314] }) }
+      ]};
+      /* TIRO NO TRONCO (ou no braço) — o corpo é jogado para trás e se recupera */
+      var B_HIT_BODY = { dur:480, frames:[
+        { t:0,   ease:'out', pose:B_STAND },
+        { t:70,  ease:'out', pose:bPose(B_STAND, { sho:[-9,235], head:[-9,187], hip:[-4,305], kneeF:[36,352], bootF:[36,386], elbL:[-32,256], handL:[-40,236], headTilt:-.28 }) },
+        { t:240, ease:'io',  pose:bPose(B_STAND, { sho:[1,232], head:[3,183], hip:[-1,303], elbL:[-22,266], handL:[-16,296], headTilt:-.1 }) },
+        { t:480, ease:'io',  pose:B_STAND }
+      ]};
+      /* TIRO NA CABEÇA — cabeça chicoteia, ele cambaleia um passo para trás e balança */
+      var B_HIT_HEAD = { dur:760, frames:[
+        { t:0,   ease:'out', pose:B_STAND },
+        { t:80,  ease:'out', pose:bPose(B_STAND, { head:[-11,177], sho:[-5,233], hip:[-3,304], elbL:[-30,250], handL:[-36,228], headTilt:-.5 }) },
+        { t:300, ease:'io',  pose:bPose(B_STAND, { hip:[-9,307], sho:[-7,237], head:[-7,187], kneeB:[-36,349], bootB:[-52,385], kneeF:[30,353], elbL:[-26,262], handL:[-30,246], headTilt:-.3 }) },
+        { t:520, ease:'io',  pose:bPose(B_STAND, { hip:[-3,303], sho:[0,231], head:[1,181], elbL:[-18,270], handL:[-11,306], headTilt:.14 }) },
+        { t:760, ease:'io',  pose:B_STAND }
+      ]};
+      /* QUEDA (tiro na perna) — a sequência completa, em 950 ms:
+         susto → o joelho da frente cede → joelho no chão e a mão busca o
+         chão → o corpo despenca → BATE no chão (compressão) → quica →
+         assenta apoiado no braço, já mirando do chão. A arma vai perdendo
+         a força na mão (gunAng) e só volta à mira no fim. */
+      var B_FALL = { dur:950, frames:[
+        { t:0,   ease:'io',  pose:B_STAND },
+        { t:90,  ease:'in',  pose:bPose(B_STAND, { kneeF:[46,357], bootF:[38,387], hip:[-2,313], sho:[6,241], head:[8,191], elbL:[-25,283], handL:[-19,320], headTilt:.16 }) },
+        { t:230, ease:'in',  pose:bPose(B_STAND, { kneeF:[30,379], bootF:[42,389], kneeB:[-24,352], bootB:[-36,387], hip:[-9,331], sho:[2,263], head:[4,215], elbL:[-4,302], handL:[8,354], elbG:[27,270], handG:[31,308], gunAng:.55, headTilt:.3 }) },
+        { t:400, ease:'in',  pose:bPose(B_STAND, { hip:[-23,347], sho:[9,293], head:[17,247], kneeF:[-32,373], bootF:[-72,385], kneeB:[-54,381], bootB:[-90,389], elbL:[12,332], handL:[-2,383], elbG:[36,320], handG:[18,354], gunAng:.95, headTilt:.38 }) },
+        { t:560, ease:'out', pose:bPose(B_GROUND, { sho:[20,322], head:[28,286], hip:[-34,357], elbG:[38,330], handG:[24,368], gunAng:1.15 }) },
+        { t:700, ease:'io',  pose:bPose(B_GROUND, { sho:[20,312], head:[28,276], elbG:[42,318], handG:[52,330], gunAng:.5 }) },
+        { t:820, ease:'io',  pose:bPose(B_GROUND, { sho:[20,317], head:[28,281], elbG:[44,312], handG:[64,310], gunAng:.1 }) },
+        { t:950, ease:'io',  pose:bPose(B_GROUND, { elbG:[44,312], handG:[66,309], gunAng:0 }) }
+      ]};
+      /* NO CHÃO — respiração curta, apoiado no cotovelo, mirando */
+      var B_GROUND_IDLE = { dur:2600, loop:true, frames:[
+        { t:0,    ease:'io', pose:B_GROUND },
+        { t:1200, ease:'io', pose:bPose(B_GROUND, { sho:[20,313.5], head:[28,277.5] }) },
+        { t:2600, ease:'io', pose:B_GROUND }
+      ]};
+      /* MORTE EM PÉ — ajoelha perdendo a força, inclina para a frente,
+         despenca de cara e assenta no corpo caído */
+      var B_DEATH = { dur:1150, frames:[
+        { t:0,    ease:'io',  pose:B_STAND },
+        { t:140,  ease:'in',  pose:bPose(B_STAND, { hip:[0,325], sho:[2,255], head:[2,209], kneeF:[40,353], bootF:[30,387], kneeB:[-4,355], bootB:[-28,387], elbL:[-13,288], handL:[-5,328], elbG:[21,264], handG:[27,302], gunAng:.7, headTilt:.22 }) },
+        { t:360,  ease:'in',  pose:bPose(B_STAND, { hip:[-3,331], sho:[11,269], head:[17,225], kneeF:[25,357], bootF:[26,388], kneeB:[-21,353], bootB:[-35,387], elbL:[-6,296], handL:[4,336], elbG:[29,284], handG:[35,324], gunAng:1.0, headTilt:.48 }) },
+        { t:620,  ease:'in',  pose:bPose(B_STAND, { hip:[-15,345], sho:[7,301], head:[21,263], kneeF:[9,361], bootF:[11,379], kneeB:[-27,359], bootB:[-25,377], elbL:[17,320], handL:[11,362], elbG:[31,320], handG:[31,354], gunAng:1.25, headTilt:.62 }) },
+        { t:800,  ease:'out', pose:bPose(B_DEAD, { sho:[-2,372], head:[25,377] }) },
+        { t:950,  ease:'io',  pose:bPose(B_DEAD, { sho:[-2,365], head:[25,370] }) },
+        { t:1150, ease:'io',  pose:B_DEAD }
+      ]};
+      /* MORTE NO CHÃO — ele desaba da posição de tiro até o corpo caído */
+      var B_DEATH_GROUND = { dur:800, frames:[
+        { t:0,   ease:'in',  pose:B_GROUND },
+        { t:200, ease:'in',  pose:bPose(B_GROUND, { sho:[18,330], head:[26,298], elbG:[40,330], handG:[44,352], gunAng:1.1, headTilt:.4 }) },
+        { t:480, ease:'in',  pose:bPose(B_DEAD, { hip:[-38,362], sho:[-2,350], head:[25,338], headTilt:.9 }) },
+        { t:800, ease:'out', pose:B_DEAD }
+      ]};
+      /* COMEMORAÇÃO — agacha (antecipação), pula com a arma para o alto, cai e recupera */
+      var B_CELEB = { dur:920, loop:true, frames:[
+        { t:0,   ease:'io',  pose:B_STAND },
+        { t:200, ease:'in',  pose:bPose(B_STAND, { hip:[0,311], sho:[8,238], head:[10,188], kneeF:[36,352], bootF:[34,386], kneeB:[-28,350], bootB:[-34,386], elbL:[-22,282], handL:[-14,318] }) },
+        { t:430, ease:'out', pose:bPose(B_STAND, { hip:[0,284], sho:[8,212], head:[11,163], kneeF:[30,330], bootF:[26,362], kneeB:[-16,328], bootB:[-24,360], elbL:[-26,240], handL:[-30,272], headTilt:-.12 }) },
+        { t:640, ease:'in',  pose:bPose(B_STAND, { hip:[0,309], sho:[8,236], head:[10,186], kneeF:[38,352], bootF:[36,386], kneeB:[-30,350], bootB:[-36,386] }) },
+        { t:920, ease:'io',  pose:B_STAND }
+      ]};
+
+      function bEase(name, p){
+        if (name === 'in') return p * p;                 // acelera: gravidade, perda de força
+        if (name === 'out') return 1 - (1 - p) * (1 - p); // desacelera: impacto, recuperação
+        if (name === 'lin') return p;
+        return p * p * (3 - 2 * p);                       // 'io': vai e volta suave
+      }
+      function bResolve(pose, fillGun){
+        var p = {}, k;
+        for (k in pose) p[k] = pose[k];
+        if (!p.elbG && fillGun){ p.elbG = fillGun.e; p.handG = fillGun.h; p.gunAng = fillGun.a; }
+        return p;
+      }
+      function bSample(seq, t, fillGun){
+        var fr = seq.frames;
+        if (seq.loop) t = ((t % seq.dur) + seq.dur) % seq.dur;
+        if (t <= fr[0].t) return bResolve(fr[0].pose, fillGun);
+        for (var i = 0; i < fr.length - 1; i++){
+          if (t <= fr[i + 1].t){
+            var p = (t - fr[i].t) / (fr[i + 1].t - fr[i].t);
+            var e = bEase(fr[i].ease, p);
+            var a = bResolve(fr[i].pose, fillGun), b = bResolve(fr[i + 1].pose, fillGun), out = {};
+            for (var ji = 0; ji < B_JOINTS.length; ji++){
+              var jn = B_JOINTS[ji];
+              out[jn] = (a[jn] && b[jn]) ? lerpPt(a[jn], b[jn], e) : (a[jn] || b[jn] || null);
+            }
+            out.headTilt = lerp(a.headTilt || 0, b.headTilt || 0, e);
+            out.gunAng = (a.gunAng != null && b.gunAng != null) ? lerp(a.gunAng, b.gunAng, e) : (p < .5 ? a.gunAng : b.gunAng);
+            return out;
+          }
+        }
+        return bResolve(fr[fr.length - 1].pose, fillGun);
+      }
+      function bGunFromAngle(sho, angle){
+        var dir = [Math.cos(angle), Math.sin(angle)], perp = [-dir[1], dir[0]];
+        return {
+          e: [sho[0] + dir[0] * 24 + perp[0] * 6, sho[1] + dir[1] * 24 + perp[1] * 6],
+          h: [sho[0] + dir[0] * 48 + perp[0] * 3, sho[1] + dir[1] * 48 + perp[1] * 3],
+          a: angle
+        };
+      }
+      function bLerpGun(a, b, p){ return { e: lerpPt(a.e, b.e, p), h: lerpPt(a.h, b.h, p), a: lerp(a.a, b.a, p) }; }
+      var B_ANIM = { you: { cap: null }, opp: { cap: null } }; // arma capturada no início da queda/morte
+
+      /* Desenha o Billy a partir da sequência da ação atual. O estado vem
+         do jogo (pose, abalo, morte, comemoração); o braço da arma segue
+         a mira do mouse nas poses vivas e é quadro a quadro nas reações. */
+      function drawBillyFig(cx, flip, colors, angle, side, now, seed, hatOff, extra){
+        extra = extra || {};
+        ctx.save();
+        ctx.translate(cx, 0);
+        if (flip) ctx.scale(-1, 1);
+        var hh = colors.h || 1;
+        ctx.translate(0, GROUND * (1 - hh)); ctx.scale(1, hh);
+        var AN = B_ANIM[side];
+        var hp = side === 'you' ? G.hpYou : G.hpOpp;
+        var deathAt = side === 'you' ? G.deathYouAt : G.deathOppAt;
+        var pose = side === 'you' ? G.poseYou : G.poseOpp;
+        var poseAt = side === 'you' ? G.poseYouAt : G.poseOppAt;
+        var stagFrom = side === 'you' ? G.staggerYouFrom : G.staggerOppFrom;
+        var stagUntil = side === 'you' ? G.staggerYouUntil : G.staggerOppUntil;
+        var zone = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
+        var celeb = G.phase === 'matchEnd' && (side === 'you' ? G.scoreYou > G.scoreOpp : G.scoreOpp > G.scoreYou);
+        var j = null, gun = null, useLean = false;
+
+        if (hp <= 0 && deathAt){
+          // morte: a arma começa onde a mira estava e vai perdendo a força quadro a quadro
+          if (!AN.cap) AN.cap = bGunFromAngle(pose === 'fallen' ? [20, 316] : [8, 230], angle);
+          j = bSample(pose === 'fallen' ? B_DEATH_GROUND : B_DEATH, now - deathAt, AN.cap);
+        } else if (hp <= 0){
+          j = bResolve(B_DEAD, null);
+        } else if (pose === 'fallen'){
+          var ft = now - poseAt;
+          if (ft < B_FALL.dur){
+            if (!AN.cap) AN.cap = bGunFromAngle([8, 230], angle);
+            j = bSample(B_FALL, ft, AN.cap);
+          } else {
+            AN.cap = null;
+            j = bSample(B_GROUND_IDLE, now + seed * 700, null);
+            var aimG = bGunFromAngle(j.sho, angle);
+            if (ft < B_FALL.dur + 240){
+              // a mão volta à mira aos poucos depois de assentar no chão
+              gun = bLerpGun({ e:[44,312], h:[66,309], a:0 }, aimG, bEase('io', (ft - B_FALL.dur) / 240));
+            } else gun = aimG;
+          }
+        } else if (stagFrom && now < stagUntil && now - stagFrom < 800){
+          AN.cap = null;
+          j = bSample(zone === 'head' ? B_HIT_HEAD : B_HIT_BODY, now - stagFrom, null);
+        } else if (celeb){
+          AN.cap = null;
+          j = bSample(B_CELEB, now, null);
+        } else if ((extra.crouchP || 0) > 0){
+          AN.cap = null;
+          j = bSample({ dur: 1, frames: [{ t: 0, ease: 'lin', pose: B_STAND }, { t: 1, ease: 'lin', pose: B_CROUCH }] }, extra.crouchP, null);
+          useLean = true;
+        } else if (currentWalkP(now) < 1){
+          AN.cap = null;
+          j = bSample(B_WALK, now, null);
+        } else {
+          AN.cap = null;
+          j = bSample(B_IDLE, now + seed * 900, null);
+          useLean = true;
+        }
+        if (!j) j = bResolve(B_STAND, null);
+        if (!gun) gun = j.elbG ? { e: j.elbG, h: j.handG, a: (j.gunAng != null ? j.gunAng : angle) } : bGunFromAngle(j.sho, angle);
+        // o coice empurra o corpo inteiro; em pé, o tronco acompanha a altura da mira
+        var rc = extra.recoilP || 0;
+        if (rc > 0 && hp > 0){ j.sho = [j.sho[0] - rc * 4, j.sho[1] - rc * 2]; j.head = [j.head[0] - rc * 5, j.head[1]]; }
+        if (useLean){ var ln = Math.sin(angle); j.sho = [j.sho[0], j.sho[1] + ln * 2.5]; j.head = [j.head[0], j.head[1] + ln * 2]; }
+
+        var OUT = 'rgba(43,29,18,.8)';
+        // perna de trás
+        limb2(j.hip, j.kneeB, j.bootB, OUT, 17); limb2(j.hip, j.kneeB, j.bootB, colors.pantsDark, 12.5);
+        drawBoot(j.bootB, colors.boots);
+        // braço de apoio, atrás do corpo
+        var shBack = [j.sho[0] - 7, j.sho[1] + 5];
+        limb2(shBack, j.elbL, j.handL, OUT, 12.5); limb2(shBack, j.elbL, j.handL, colors.coatDark, 9);
+        ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(j.handL[0], j.handL[1], 5.6, 0, Math.PI*2); ctx.fill();
+        // cauda do casaco
+        ctx.fillStyle = colors.coatDark;
+        ctx.beginPath();
+        ctx.moveTo(j.hip[0] - 12, j.hip[1] - 16);
+        ctx.lineTo(j.hip[0] - 27, j.hip[1] + 26);
+        ctx.lineTo(j.hip[0] - 6, j.hip[1] + 12);
+        ctx.closePath(); ctx.fill();
+        // perna da frente
+        limb2(j.hip, j.kneeF, j.bootF, OUT, 17); limb2(j.hip, j.kneeF, j.bootF, colors.pants, 12.5);
+        drawBoot(j.bootF, colors.boots);
+        // tronco como forma cheia afunilada (ombros largos, cintura estreita),
+        // redesenhada a cada quadro — não é uma pose girada
+        var vx = j.sho[0] - j.hip[0], vy = j.sho[1] - j.hip[1];
+        var vl = Math.sqrt(vx * vx + vy * vy) || 1, px = -vy / vl, py = vx / vl;
+        ctx.fillStyle = OUT; ctx.beginPath();
+        ctx.moveTo(j.hip[0] + px * 19, j.hip[1] + py * 19); ctx.lineTo(j.sho[0] + px * 23, j.sho[1] + py * 23);
+        ctx.lineTo(j.sho[0] - px * 23, j.sho[1] - py * 23); ctx.lineTo(j.hip[0] - px * 19, j.hip[1] - py * 19);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = colors.coat; ctx.beginPath();
+        ctx.moveTo(j.hip[0] + px * 16, j.hip[1] + py * 16); ctx.lineTo(j.sho[0] + px * 20, j.sho[1] + py * 20);
+        ctx.lineTo(j.sho[0] - px * 20, j.sho[1] - py * 20); ctx.lineTo(j.hip[0] - px * 16, j.hip[1] - py * 16);
+        ctx.closePath(); ctx.fill();
+        // colete e botões de latão
+        limb(j.hip[0] + 7, j.hip[1] - 3, j.sho[0] + 7, j.sho[1] + 3, colors.vest, 15);
+        ctx.fillStyle = '#d9a92c';
+        [.22, .48, .74].forEach(function(t){
+          var bp2 = lerpPt([j.hip[0] + 7, j.hip[1] - 3], [j.sho[0] + 7, j.sho[1] + 3], t);
+          ctx.beginPath(); ctx.arc(bp2[0], bp2[1], 2.1, 0, Math.PI*2); ctx.fill();
+        });
+        // vinco da calça da frente
+        limb2([j.hip[0] + 4, j.hip[1] + 6], [j.kneeF[0] + 3, j.kneeF[1]], [j.bootF[0] + 2, j.bootF[1] - 4], colors.pantsDark, 3.5);
+        // camisa e lenço no pescoço
+        var neck = lerpPt(j.sho, j.head, .52);
+        ctx.fillStyle = colors.shirt;
+        ctx.beginPath(); ctx.moveTo(neck[0] - 3, neck[1] - 8); ctx.lineTo(neck[0] + 10, neck[1] - 4); ctx.lineTo(neck[0] + 2, neck[1] + 9); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = colors.band;
+        ctx.beginPath(); ctx.moveTo(neck[0] - 6, neck[1] - 9); ctx.lineTo(neck[0] + 11, neck[1] - 7); ctx.lineTo(neck[0] + 3, neck[1] + 5); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(neck[0] + 3, neck[1] - 5, 3.6, 0, Math.PI*2); ctx.fill();
+        // cinto com cartuchos e coldre
+        ctx.save(); ctx.translate(j.hip[0], j.hip[1]);
+        ctx.fillStyle = '#5a3a1e'; roundRect(-18, -9, 37, 13, 4); ctx.fill();
+        ctx.fillStyle = '#d9a92c'; roundRect(7, -6, 10, 8, 2); ctx.fill();
+        for (var ci = 0; ci < 4; ci++){
+          ctx.fillStyle = '#c9972f'; roundRect(-15 + ci * 6, -6.5, 3.6, 8, 1.2); ctx.fill();
+          ctx.fillStyle = '#8a6d1f'; ctx.fillRect(-15 + ci * 6, -6.5, 3.6, 2);
+        }
+        ctx.fillStyle = '#4a2f1a'; roundRect(-25, 1, 10, 23, 4); ctx.fill();
+        ctx.save(); ctx.translate(-20, 0); ctx.rotate(.32);
+        ctx.fillStyle = '#6e4525'; roundRect(-3, -7, 6.5, 10, 2.5); ctx.fill();
+        ctx.restore();
+        ctx.restore();
+        // cabeça (com a inclinação própria de cada quadro)
+        var blink = !extra.expr && hp > 0 && ((now / 1000 + seed * 1.93) % 3.6) < .09;
+        drawHead(j.head, colors, j.headTilt || 0, hatOff, extra.expr || '', blink);
+        // braço da arma e o revólver
+        limb2(j.sho, gun.e, gun.h, OUT, 14.5);
+        limb2(j.sho, gun.e, gun.h, colors.coat, 10.5);
+        var gd = [Math.cos(gun.a), Math.sin(gun.a)];
+        ctx.fillStyle = colors.shirt; ctx.beginPath(); ctx.arc(gun.h[0] - gd[0] * 6, gun.h[1] - gd[1] * 6, 6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(gun.h[0], gun.h[1], 6.4, 0, Math.PI*2); ctx.fill();
+        drawRevolver(gun.h, gun.a, extra.hammerP || 0, extra.cylRot || 0);
+        ctx.restore();
+      }
+      function roundRect(x, y, w, h, r){
+        ctx.beginPath();
+        ctx.moveTo(x+r, y);
+        ctx.arcTo(x+w, y, x+w, y+h, r);
+        ctx.arcTo(x+w, y+h, x, y+h, r);
+        ctx.arcTo(x, y+h, x, y, r);
+        ctx.arcTo(x, y, x+w, y, r);
+        ctx.closePath();
+      }
+
+      function drawScene(now){
+        // cena do vídeo: fundo BRANCO, faixa de chão bege no meio e
+        // branco de novo embaixo, onde ficam os tambores dos revólveres
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+        var g = ctx.createLinearGradient(0, 300, 0, GROUND + 14);
+        g.addColorStop(0, '#ded1bd'); g.addColorStop(1, '#c8b696');
+        ctx.fillStyle = g; ctx.fillRect(0, 300, W, GROUND + 14 - 300);
+        ctx.fillStyle = 'rgba(120,95,60,.35)'; ctx.fillRect(0, GROUND + 14, W, 2);
+        // sombras cinzentas e longas dos pistoleiros, caindo para fora
+        // sobre o chão e a faixa branca, como no vídeo
+        ctx.fillStyle = 'rgba(110,110,110,.5)';
+        ctx.beginPath();
+        ctx.moveTo(X_YOU - 6, GROUND + 2); ctx.lineTo(X_YOU - 118, GROUND + 66);
+        ctx.lineTo(X_YOU - 66, GROUND + 74); ctx.lineTo(X_YOU + 22, GROUND + 8);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(X_YOU - 16, GROUND + 8, 52, 7, .1, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(X_OPP + 6, GROUND + 2); ctx.lineTo(X_OPP + 118, GROUND + 66);
+        ctx.lineTo(X_OPP + 66, GROUND + 74); ctx.lineTo(X_OPP - 22, GROUND + 8);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(X_OPP + 16, GROUND + 8, 52, 7, -.1, 0, Math.PI*2); ctx.fill();
+        // barras de vida nos cantos superiores: vermelho → amarelo → verde
+        drawHpBar(28, 16, 176, 15, G.hpYou, false);
+        drawHpBar(W - 204, 16, 176, 15, G.hpOpp, true);
+      }
+      function drawHpBar(x, y, w, h, hp, rightSide){
+        var frac = Math.max(0, Math.min(1, hp / 100));
+        ctx.save();
+        ctx.fillStyle = '#fdfdfd'; ctx.fillRect(x, y, w, h);
+        var grad = ctx.createLinearGradient(x, 0, x + w, 0);
+        grad.addColorStop(0, '#e23b2e'); grad.addColorStop(.55, '#e6d92e'); grad.addColorStop(1, '#4db02c');
+        ctx.fillStyle = grad;
+        // a vida que resta fica ancorada no lado do centro da tela
+        if (rightSide) ctx.fillRect(x, y, w * frac, h);
+        else ctx.fillRect(x + w * (1 - frac), y, w * frac, h);
+        ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+      }
+      /* Tambor (cilindro) do revólver com as 6 câmaras, nos cantos inferiores.
+         Câmara com projétil dourado = bala disponível; câmara preta = já disparada. */
+      function drawCylinder(cx, cy, ammo, mine, now, rot, reloadP){
+        var r = 54;
+        ctx.save();
+        // recarga animada: o tambor abre para o lado, ejeta as cápsulas e
+        // recebe as 6 balas uma a uma antes de fechar girando
+        var shownAmmo = ammo, swing = 0;
+        if (reloadP !== null && reloadP !== undefined && reloadP < 1){
+          swing = reloadP < .3 ? reloadP / .3 : reloadP > .85 ? (1 - reloadP) / .15 : 1;
+          shownAmmo = reloadP < .3 ? 0 : Math.min(6, Math.floor((reloadP - .3) / .55 * 6));
+          cx += (mine ? -1 : 1) * swing * 16; cy -= swing * 6;
+          rot = (rot || 0) + swing * .5 + (reloadP > .85 ? (reloadP - .85) / .15 * Math.PI * 2 : 0);
+        }
+        if (mine && G.phase === 'countdown'){
+          var pulse = .5 + .5 * Math.sin(now / 280);
+          ctx.strokeStyle = G.hoverCyl ? 'rgba(30,125,50,.95)' : 'rgba(185,126,16,' + (0.45 + 0.4 * pulse) + ')';
+          ctx.lineWidth = G.hoverCyl ? 5 : 3.5;
+          ctx.beginPath(); ctx.arc(cx, cy, r + 7, 0, Math.PI*2); ctx.stroke();
+        }
+        var grad = ctx.createRadialGradient(cx - 14, cy - 16, 8, cx, cy, r);
+        grad.addColorStop(0, '#e8eaee'); grad.addColorStop(.6, '#b9bec7'); grad.addColorStop(1, '#8d939e');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#5d646e'; ctx.lineWidth = 3; ctx.stroke();
+        for (var i = 0; i < 6; i++){
+          var a = -Math.PI / 2 + i * Math.PI / 3 + (rot || 0);
+          var hx = cx + Math.cos(a) * 31, hy = cy + Math.sin(a) * 31;
+          ctx.beginPath(); ctx.arc(hx, hy, 11.5, 0, Math.PI*2);
+          if (i < shownAmmo){
+            // câmara cheia no vídeo: disco claro prateado com estrela escura no meio
+            ctx.fillStyle = '#dde0e4'; ctx.fill();
+            ctx.strokeStyle = '#4c5158'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.strokeStyle = '#565b63'; ctx.lineWidth = 1.8;
+            for (var sp9 = 0; sp9 < 3; sp9++){
+              var sa9 = sp9 * Math.PI / 3 + a;
+              ctx.beginPath();
+              ctx.moveTo(hx - Math.cos(sa9) * 6.4, hy - Math.sin(sa9) * 6.4);
+              ctx.lineTo(hx + Math.cos(sa9) * 6.4, hy + Math.sin(sa9) * 6.4);
+              ctx.stroke();
+            }
+            ctx.fillStyle = '#3c4046';
+            ctx.beginPath(); ctx.arc(hx, hy, 2.4, 0, Math.PI*2); ctx.fill();
+          } else {
+            ctx.fillStyle = '#17181a'; ctx.fill();
+            ctx.strokeStyle = '#4c5158'; ctx.lineWidth = 2; ctx.stroke();
+          }
+        }
+        ctx.fillStyle = '#d5d8de';
+        ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#5d646e'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#7c828c';
+        ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+      /* ---- Telas de rodada, como no vídeo: painel amarelo-claro com
+         borda verde e rabo verde apontando para o tambor do jogador ---- */
+      function roundTotal(){ return G.mode === 'cpu' ? 9 : (WIN_SCORE * 2 - 1); }
+      function roundDifficulty(){ return Math.min(90, (G.round + 1) * 10); }
+      function panelBase(x, y, w, h, withTail){
+        ctx.save();
+        if (withTail){
+          ctx.fillStyle = '#22b14c';
+          ctx.beginPath();
+          ctx.moveTo(x + 60, y + h); ctx.lineTo(x + 190, y + h); ctx.lineTo(CYL.x + 16, CYL.y - 46);
+          ctx.closePath(); ctx.fill();
+        }
+        ctx.fillStyle = '#f7f9cf';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = '#2fae4e'; ctx.lineWidth = 2.5; ctx.strokeRect(x, y, w, h);
+        ctx.restore();
+      }
+      function drawRoundIntroPanel(){
+        var x = 268, y = 52, w = 424, h = 148;
+        panelBase(x, y, w, h, true);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#1d9e46';
+        ctx.font = '700 37px Georgia, "Times New Roman", serif';
+        ctx.fillText('ROUND ', W/2 - 88, y + 62);
+        ctx.font = '700 56px Georgia, "Times New Roman", serif';
+        ctx.fillText(String(G.round), W/2 + 2, y + 64);
+        ctx.font = '700 37px Georgia, "Times New Roman", serif';
+        ctx.fillText('/' + roundTotal() + ' START', W/2 + 118, y + 62);
+        ctx.fillStyle = '#1c1c1c';
+        ctx.font = '400 25px Georgia, "Times New Roman", serif';
+        ctx.fillText('Difficulty: ' + roundDifficulty() + '%', W/2, y + 112);
+        if (G.bottle) { ctx.fillStyle = '#6b5a2e'; ctx.font = '600 16px Archivo, sans-serif'; ctx.fillText('Rodada bônus: acerte a garrafa voadora!', W/2, y + 136); }
+      }
+      function drawRoundCompletePanel(){
+        var x = 298, y = 46, w = 364, h = 300;
+        panelBase(x, y, w, h, false);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#1d9e46';
+        ctx.font = '700 27px Georgia, "Times New Roman", serif';
+        ctx.fillText('ROUND ', W/2 - 62, y + 42);
+        ctx.font = '700 40px Georgia, "Times New Roman", serif';
+        ctx.fillText(String(G.round), W/2 + 28, y + 44);
+        ctx.font = '700 27px Georgia, "Times New Roman", serif';
+        ctx.fillText(' COMPLETE', W/2 + 108, y + 42);
+        var acc = G.roundShots ? Math.round(G.roundHits / G.roundShots * 10) : 0;
+        var spd = G.reactYou ? Math.max(0, 10 - Math.floor(G.reactYou / 300)) : 0;
+        var life = Math.max(0, Math.round(G.hpYou / 10));
+        var total = Math.round(G.pointsYou / 12) + acc + spd + life;
+        var rows = [['Accuracy Bonus:', acc], ['Speed Bonus:', spd], ['Life Bonus:', life]];
+        ctx.font = '400 19px Georgia, "Times New Roman", serif';
+        rows.forEach(function(r, i){
+          var ry = y + 86 + i * 34;
+          ctx.strokeStyle = 'rgba(47,174,78,.35)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x + 26, ry + 10); ctx.lineTo(x + w - 26, ry + 10); ctx.stroke();
+          ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.fillText(r[0], x + 34, ry);
+          ctx.fillStyle = '#3a6ea5'; ctx.textAlign = 'right'; ctx.fillText(String(r[1]), x + w - 40, ry);
+        });
+        ctx.textAlign = 'left'; ctx.fillStyle = '#333'; ctx.font = '400 20px Georgia, serif';
+        ctx.fillText('Total Score:', x + 34, y + 196);
+        ctx.fillStyle = '#3a6ea5'; ctx.textAlign = 'right'; ctx.font = '700 27px Georgia, serif';
+        ctx.fillText(String(total), x + w - 40, y + 198);
+        ctx.textAlign = 'center';
+        ctx.font = '600 17px Archivo, sans-serif'; ctx.fillStyle = G.winner === 'you' ? '#1d7a38' : '#8a2b20';
+        ctx.fillText(G.winner === 'draw' ? 'Empate na rodada!' : (G.winner === 'you' ? 'Você venceu a rodada!' : 'Oponente venceu a rodada'), W/2, y + 224);
+        if (G.mode === 'cpu'){
+          G.btnNext = { x: x + 62, y: y + 238, w: 240, h: 34 };
+          G.btnMenu = { x: x + 112, y: y + 276, w: 140, h: 20 };
+          ctx.fillStyle = '#fdfdf5'; ctx.fillRect(G.btnNext.x, G.btnNext.y, G.btnNext.w, G.btnNext.h);
+          ctx.strokeStyle = '#9a9a8a'; ctx.lineWidth = 1.5; ctx.strokeRect(G.btnNext.x, G.btnNext.y, G.btnNext.w, G.btnNext.h);
+          ctx.fillStyle = '#555'; ctx.font = '600 16px Archivo, sans-serif';
+          ctx.fillText('NEXT ROUND', W/2, G.btnNext.y + 22);
+          ctx.fillStyle = '#888'; ctx.font = '600 11px Archivo, sans-serif';
+          ctx.fillText('MAIN MENU', W/2, G.btnMenu.y + 14);
+        } else { G.btnNext = null; G.btnMenu = null; }
+      }
+      var lastFrame = performance.now();
+      function frame(now){
+        var dt = Math.min(50, now - lastFrame); lastFrame = now;
+        // A contagem só anda com o mouse sobre o tambor de balas — e NÃO
+        // pausa se o mouse sair: o cronômetro RECOMEÇA DO ZERO. Enquanto o
+        // mouse estiver fora, o início fica sendo empurrado para a frente;
+        // quando o mouse volta ao tambor, conta 3, 2, 1 desde o começo.
+        // No online, quem coordena é o anfitrião: a contagem só anda quando
+        // OS DOIS estão sobre o tambor ao mesmo tempo (ele avisa "go"/"hold") —
+        // sem isso, um entrava em FIRE! e o outro não, e a partida dessincronizava.
+        if (G.phase === 'countdown'){
+          var ready;
+          if (G.mode === 'online'){
+            ready = G.role === 'host' ? (G.hoverCyl && G.remoteHover) : (G.hoverCyl && G.guestGo);
+            if (G.role === 'host'){
+              if (ready && !G.goSent){
+                G.goSent = true;
+                var goAt = now + 600;
+                G.countT0 = goAt; G.countStep = -1;
+                sendMsg({ t:'go', at: goAt });
+              } else if (!ready && G.goSent){
+                G.goSent = false;
+                sendMsg({ t:'hold' });
+              }
+            }
+          } else ready = G.hoverCyl;
+          G.countReady = ready;
+          if (!ready){
+            G.countT0 = now + 350;
+            G.countStep = -1;
+            G.count = 'PREPAREM-SE';
+          }
+        }
+        processCountdown(now);
+        updateBottle(now);
+        if (G.mode === 'cpu') updateAI(now);
+        if (G.phase === 'fire') { checkEnd(); renderHUD(); }
+
+        ctx.save();
+        if (now < G.shakeUntil){
+          var sh = 5 * (G.shakeUntil - now) / 180;
+          ctx.translate((Math.random()*2-1)*sh, (Math.random()*2-1)*sh);
+        }
+        drawScene(now);
+        if (G.hpYou <= 0 && !G.deathYouAt && G.phase !== 'idle') G.deathYouAt = now;
+        if (G.hpOpp <= 0 && !G.deathOppAt && G.phase !== 'idle') G.deathOppAt = now;
+        var dYouP = currentDeathP('you', now), dOppP = currentDeathP('opp', now);
+        // "caído de vez" só depois que o tombo animado termina: antes disso o corpo está tombando
+        var youDown = G.hpYou <= 0 && dYouP >= 1, oppDown = G.hpOpp <= 0 && dOppP >= 1;
+        var fpYou = currentFallP('you', now), fpOpp = currentFallP('opp', now);
+        var stYou = staggerVal(G.staggerYouFrom, G.staggerYouUntil, now);
+        var stOpp = staggerVal(G.staggerOppFrom, G.staggerOppUntil, now);
+        function squashFor(side){
+          var pose = side === 'you' ? G.poseYou : G.poseOpp;
+          var at = side === 'you' ? G.poseYouAt : G.poseOppAt;
+          if (pose !== 'fallen' || !at) return 0;
+          var lt = (now - (at + 430)) / 300;
+          return (lt < 0 || lt > 1) ? 0 : Math.sin(lt * Math.PI);
+        }
+        function recoilFor(side){
+          var ra = side === 'you' ? G.recoilYouAt : G.recoilOppAt;
+          if (!ra) return 0;
+          var rp2 = 1 - (now - ra) / 260;
+          return rp2 > 0 ? rp2 : 0;
+        }
+        // entrada andando no começo da rodada; comemoração de quem venceu o duelo
+        var walkP = currentWalkP(now);
+        var walkSwing = walkP < 1 ? (1 - walkP) : 0;
+        var xYouNow = X_YOU - (1 - walkP) * 180, xOppNow = X_OPP + (1 - walkP) * 180;
+        function exprFor(side, stag){
+          if (G.phase === 'matchEnd') return (G.winner === side || (side === 'you' ? G.scoreYou > G.scoreOpp : G.scoreOpp > G.scoreYou)) ? 'win' : '';
+          if (now < (side === 'you' ? G.stunYouUntil : G.stunOppUntil)) return 'stun';
+          return stag > .25 ? 'hurt' : '';
+        }
+        function hammerFor(side){
+          if (G.phase !== 'fire') return 0;
+          var recAt = side === 'you' ? G.recoilYouAt : G.recoilOppAt;
+          if (recAt && now - recAt < 260) return (now - recAt) / 260; // martelo cai no tiro e rearma
+          return 1;
+        }
+        var celebYou = G.phase === 'matchEnd' && G.scoreYou > G.scoreOpp;
+        var celebOpp = G.phase === 'matchEnd' && G.scoreOpp > G.scoreYou;
+        // Billy Poeira é desenhado pelas sequências quadro a quadro; os
+        // outros pistoleiros seguem no desenho articulado até a vez deles
+        var exOpp = { crouchP: currentCrouchP('opp', now), walkSwing: walkSwing, expr: exprFor('opp', stOpp), hammerP: hammerFor('opp'), cylRot: G.cylRotOpp, hop: celebOpp ? Math.abs(Math.sin(now / 210)) * 9 : 0,
+            deathP: dOppP, squash: squashFor('opp'), recoilP: recoilFor('opp') };
+        var exYou = { crouchP: currentCrouchP('you', now), walkSwing: walkSwing, expr: exprFor('you', stYou), hammerP: hammerFor('you'), cylRot: G.cylRotYou, hop: celebYou ? Math.abs(Math.sin(now / 210)) * 9 : 0,
+            deathP: dYouP, squash: squashFor('you'), recoilP: recoilFor('you') };
+        if (charFor('opp').id === 'billy')
+          drawBillyFig(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), 'opp', now, 2.1, now < G.hatOppUntil, exOpp);
+        else
+          drawCowboy(xOppNow, true, charFor('opp'), celebOpp ? -0.95 : aimAngleFor('opp'), fpOpp, stOpp, oppDown, now, 2.1, now < G.hatOppUntil, exOpp);
+        if (charFor('you').id === 'billy')
+          drawBillyFig(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), 'you', now, 0, now < G.hatYouUntil, exYou);
+        else
+          drawCowboy(xYouNow, false, charFor('you'), celebYou ? -0.95 : aimAngleFor('you'), fpYou, stYou, youDown, now, 0, now < G.hatYouUntil, exYou);
+        // estrelinhas girando sobre a cabeça de quem está atordoado
+        [['you', xYouNow], ['opp', xOppNow]].forEach(function(pair){
+          var sd = pair[0];
+          if (now < (sd === 'you' ? G.stunYouUntil : G.stunOppUntil) && !(sd === 'you' ? youDown : oppDown)){
+            var chh = charFor(sd).h;
+            var hyy = GROUND - (GROUND - 180) * chh - 46;
+            ctx.fillStyle = '#e8a33d';
+            for (var si2 = 0; si2 < 3; si2++){
+              var saa = now / 260 + si2 * Math.PI * 2 / 3;
+              ctx.beginPath(); ctx.arc(pair[1] + Math.cos(saa) * 20, hyy + Math.sin(saa) * 5, 3, 0, Math.PI*2); ctx.fill();
+            }
+          }
+        });
+        // tambores de balas nos cantos inferiores, como na imagem
+        if (G.mode){
+          var reloadP = G.reloadT0 ? Math.min(1, Math.max(0, (now - G.reloadT0) / 1750)) : 1;
+          drawCylinder(CYL.x, CYL.y, G.ammoYou, true, now, G.cylRotYou, reloadP);
+          drawCylinder(W - CYL.x, CYL.y, G.ammoOpp, false, now, G.cylRotOpp, reloadP);
+        }
+
+        drawBottle(now);
+        // poças de sangue no chão sob quem caiu ou morreu, como no vídeo
+        [['you', xYouNow, G.poseYou, G.hpYou], ['opp', xOppNow, G.poseOpp, G.hpOpp]].forEach(function(s3){
+          if (s3[2] === 'fallen' || s3[3] <= 0){
+            ctx.fillStyle = 'rgba(179,30,24,.75)';
+            ctx.beginPath(); ctx.ellipse(s3[1] - 30, GROUND + 4, 52, 5.5, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(s3[1] + 28, GROUND + 7, 26, 4, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(s3[1] - 78, GROUND + 8, 13, 3, 0, 0, Math.PI*2); ctx.fill();
+          }
+        });
+
+        // efeitos
+        effects = effects.filter(function(e){ return now < e.until; });
+        effects.forEach(function(e){
+          if (e.kind === 'tracer'){
+            ctx.strokeStyle = 'rgba(255,220,130,.9)'; ctx.lineWidth = 2.5;
+            ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
+          } else if (e.kind === 'flash'){
+            ctx.fillStyle = 'rgba(255,190,60,.95)';
+            ctx.beginPath();
+            for (var i = 0; i < 8; i++){
+              var a = i / 8 * Math.PI * 2, r = i % 2 ? 7 : 17;
+              var px = e.x + Math.cos(a)*r, py = e.y + Math.sin(a)*r;
+              if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath(); ctx.fill();
+          } else if (e.kind === 'ring'){
+            var p = Math.min(1, Math.max(0, (now - e.born) / 450));
+            ctx.strokeStyle = e.color; ctx.globalAlpha = 1 - p; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(1, 8 + p*26), 0, Math.PI*2); ctx.stroke();
+            ctx.globalAlpha = 1;
+          } else if (e.kind === 'dust'){
+            if (now < e.born) return; // poeira agendada (ex.: quando o corpo bate no chão) ainda não nasceu
+            var dp = Math.min(1, Math.max(0, (now - e.born) / 650));
+            ctx.fillStyle = 'rgba(178,156,120,' + (0.5 * (1 - dp)) + ')';
+            for (var di = 0; di < 5; di++){
+              ctx.beginPath();
+              ctx.arc(e.x + (di - 2) * 16 * (0.4 + dp), e.y - 3 - dp * 12 - (di % 2) * 6, 6 + dp * 15, 0, Math.PI*2);
+              ctx.fill();
+            }
+          } else if (e.kind === 'smoke'){
+            var sp = Math.min(1, Math.max(0, (now - e.born) / 1700));
+            ctx.fillStyle = 'rgba(200,198,192,' + (0.34 * (1 - sp)) + ')';
+            for (var si = 0; si < 6; si++){
+              ctx.beginPath();
+              ctx.arc(e.x + e.dir * sp * (16 + si * 11), e.y - sp * (26 + si * 9) - si * 5, 4 + sp * (11 + si * 3.5), 0, Math.PI*2);
+              ctx.fill();
+            }
+          } else if (e.kind === 'shell'){
+            // cápsula de latão: voa para trás, quica no chão e fica na rua até sumir
+            var st = Math.max(0, (now - e.born) / 1000);
+            var sx2 = e.x + e.dir * 34 * st;
+            var sy2 = e.y - 66 * st + 300 * st * st;
+            if (sy2 >= GROUND + 2){ sy2 = GROUND + 2; if (!e.pinged){ e.pinged = true; shellPing(); } }
+            var fadeS = e.until - now < 500 ? (e.until - now) / 500 : 1;
+            ctx.save(); ctx.translate(sx2, sy2); ctx.rotate(st * 7 * e.dir);
+            ctx.globalAlpha = Math.max(0, fadeS);
+            ctx.fillStyle = '#c9972f'; roundRect(-3, -7, 6, 11, 2); ctx.fill();
+            ctx.fillStyle = '#8a6d1f'; ctx.fillRect(-3, 2, 6, 2.5);
+            ctx.restore(); ctx.globalAlpha = 1;
+          } else if (e.kind === 'blood'){
+            // sangue espirra para cima e para o lado e cai, como no vídeo
+            var bp2 = Math.min(1, Math.max(0, (now - e.born) / 620));
+            ctx.fillStyle = 'rgba(196,26,20,' + (1 - bp2 * .7) + ')';
+            for (var bi = 0; bi < 16; bi++){
+              var bx = e.x + e.dir * bp2 * (10 + (bi % 5) * 15) + (bi % 3 - 1) * bp2 * 16;
+              var by = e.y - bp2 * (26 + (bi % 4) * 17) + bp2 * bp2 * 88;
+              ctx.beginPath(); ctx.arc(bx, by, 1.8 + (bi % 3), 0, Math.PI*2); ctx.fill();
+            }
+          } else if (e.kind === 'hatfly'){
+            var hp3 = Math.min(1, Math.max(0, (now - e.born) / 1250));
+            var hx2 = e.x + e.dir * hp3 * 95;
+            var hy2 = e.y - hp3 * 64 + hp3 * hp3 * 205; // sobe, gira e cai na rua
+            ctx.save(); ctx.translate(hx2, hy2); ctx.rotate(e.dir * hp3 * 2.6);
+            ctx.globalAlpha = hp3 > .85 ? Math.max(0, 1 - (hp3 - .85) / .15) : 1;
+            ctx.fillStyle = e.hat;
+            ctx.beginPath(); ctx.ellipse(0, 0, 30, 6.6, 0, 0, Math.PI*2); ctx.fill();
+            roundRect(-14, -16, 28, 16, 6); ctx.fill();
+            ctx.fillStyle = e.band; roundRect(-14, -8, 28, 5, 2); ctx.fill();
+            ctx.restore(); ctx.globalAlpha = 1;
+          } else if (e.kind === 'glass'){
+            var gp = Math.min(1, Math.max(0, (now - e.born) / 700));
+            ctx.fillStyle = 'rgba(122,74,33,' + (1 - gp) + ')';
+            for (var gi = 0; gi < 9; gi++){
+              var ga = gi / 9 * Math.PI * 2 + .4;
+              ctx.beginPath(); ctx.arc(e.x + Math.cos(ga) * gp * 44, e.y + Math.sin(ga) * gp * 30 + gp * gp * 52, 2.6, 0, Math.PI*2); ctx.fill();
+            }
+          } else if (e.kind === 'text'){
+            var q = Math.min(1, Math.max(0, (now - e.born) / 1100));
+            ctx.globalAlpha = 1 - q*q;
+            ctx.font = '700 24px "Zilla Slab", serif'; ctx.textAlign = 'center';
+            ctx.fillStyle = e.color;
+            ctx.fillText(e.txt, e.x, e.y - q*36);
+            ctx.globalAlpha = 1;
+          }
+        });
+
+        // sem mira na tela: só o braço de cada pistoleiro mostra a altura do tiro
+
+        // contagem do vídeo: número VERMELHO bem grande no centro, em
+        // fonte com serifa; FIRE! vermelho grande também
+        if ((G.phase === 'countdown' || (G.phase === 'fire' && G.count === 'FIRE!')) && G.count){
+          ctx.textAlign = 'center';
+          if (G.count === 'PREPAREM-SE'){
+            drawRoundIntroPanel();
+          } else {
+            ctx.font = '700 ' + (G.count === 'FIRE!' ? 96 : 118) + 'px Georgia, "Times New Roman", serif';
+            ctx.fillStyle = '#ed1c24';
+            ctx.fillText(G.count, W/2, G.count === 'FIRE!' ? 158 : 150);
+          }
+          if (G.phase === 'countdown' && !G.hoverCyl){
+            ctx.font = '700 21px Archivo, sans-serif';
+            ctx.fillStyle = '#8a6d3b';
+            ctx.fillText('Coloque o mouse sobre o tambor de balas — se tirar, a contagem recomeça do zero', W/2, 428);
+            ctx.font = '500 17px Archivo, sans-serif';
+            ctx.fillText('— o círculo de metal no canto inferior esquerdo —', W/2, 454);
+          } else if (G.phase === 'countdown' && G.mode === 'online' && !G.countReady){
+            ctx.font = '700 21px Archivo, sans-serif';
+            ctx.fillStyle = '#8a6d3b';
+            ctx.fillText('Você está pronto — aguardando seu amigo colocar o mouse sobre o tambor dele…', W/2, 428);
+            ctx.font = '500 17px Archivo, sans-serif';
+            ctx.fillText('A contagem só anda quando os dois estão sobre o tambor, ao mesmo tempo', W/2, 454);
+          }
+        }
+        if (G.phase === 'roundEnd'){
+          drawRoundCompletePanel();
+        }
+        if (G.phase === 'idle'){
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#7a5c33';
+          ctx.font = '700 34px "Zilla Slab", serif';
+          ctx.fillText('O duelo começa aqui', W/2, 190);
+          ctx.font = '500 19px Archivo, sans-serif';
+          ctx.fillText('Escolha um modo no painel e toque em começar.', W/2, 226);
+        }
+        if (G.phase === 'matchEnd'){
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#7a5c33';
+          ctx.font = '700 38px "Zilla Slab", serif';
+          var t3 = G.scoreYou > G.scoreOpp ? '🏆 Você venceu o duelo!' : 'O oponente venceu o duelo';
+          ctx.fillText(t3, W/2, 190);
+          ctx.font = '500 19px Archivo, sans-serif';
+          ctx.fillText('Placar final: ' + G.scoreYou + ' × ' + G.scoreOpp + ' — joguem de novo!', W/2, 226);
+        }
+        ctx.restore();
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      renderHUD();
+
+      /* ---------------- ENTRADAS (mouse / toque / teclado) ---------------- */
+      function canvasPos(evt){
+        var r = canvas.getBoundingClientRect();
+        return { x: (evt.clientX - r.left) / r.width, y: (evt.clientY - r.top) / r.height };
+      }
+      var lastAimSend = 0;
+      var prevHover = false;
+      // avisa o amigo quando o mouse entra/sai do tambor: no online a
+      // contagem só anda com os dois sobre o tambor, então o estado importa
+      function setHover(v){
+        G.hoverCyl = v;
+        if (v !== prevHover){ prevHover = v; if (G.mode === 'online') sendMsg({ t:'hover', on: v }); }
+      }
+      function overCylinder(p){
+        var dx = p.x * W - CYL.x, dy = p.y * H - CYL.y;
+        return dx * dx + dy * dy <= CYL.r * CYL.r;
+      }
+      canvas.addEventListener('pointermove', function(e){
+        // sem suavização nem fila: pega o evento mais recente do navegador
+        // (coalesced) e aplica na hora — o braço segue o mouse a 100%
+        var evs = (e.getCoalescedEvents ? e.getCoalescedEvents() : null);
+        var p = canvasPos(evs && evs.length ? evs[evs.length - 1] : e);
+        G.aimYou = p;
+        setHover(overCylinder(p));
+        if (G.mode === 'online' && connOpen()){
+          var now = performance.now();
+          if (now - lastAimSend > 40){ lastAimSend = now; sendMsg({ t:'aim', y: myImpactY() / H }); }
+        }
+      });
+      canvas.addEventListener('pointerleave', function(){ setHover(false); });
+      canvas.addEventListener('pointerdown', function(e){
+        e.preventDefault(); ac();
+        var p = canvasPos(e);
+        G.aimYou = p;
+        setHover(overCylinder(p));
+        // botões da tela ROUND COMPLETE (NEXT ROUND / MAIN MENU)
+        if (G.phase === 'roundEnd' && G.mode === 'cpu'){
+          var px9 = p.x * W, py9 = p.y * H;
+          function inRect(r){ return r && px9 >= r.x && px9 <= r.x + r.w && py9 >= r.y && py9 <= r.y + r.h; }
+          if (inRect(G.btnNext)){
+            if (G.advanceTimer){ clearTimeout(G.advanceTimer); G.advanceTimer = null; }
+            if (G.doAdvance) G.doAdvance();
+            return;
+          }
+          if (inRect(G.btnMenu)){
+            if (G.advanceTimer){ clearTimeout(G.advanceTimer); G.advanceTimer = null; }
+            G.phase = 'idle'; G.count = ''; G.btnNext = null; G.btnMenu = null;
+            showMsg('Menu principal — escolha um modo no painel e comece de novo.', 3500);
+            return;
+          }
+        }
+        if (G.hoverCyl) return; // sobre o tambor: segura a contagem, não atira
+        if (G.mode) shoot('you', myImpactY()); // o tiro sai na direção exata do braço, que aponta para o mouse
+      });
+
+      /* trocar de aba no meio da rodada: o relógio da partida
+         anda junto quando a página volta, em vez de a rodada acabar escondida */
+      var hiddenAt = 0;
+      document.addEventListener('visibilitychange', function(){
+        if (G.mode === 'online') return;
+        if (document.hidden){ hiddenAt = performance.now(); }
+        else if (hiddenAt){
+          var dShift = performance.now() - hiddenAt; hiddenAt = 0;
+          if (G.phase === 'countdown') G.countT0 += dShift;
+          if (G.phase === 'fire'){ G.fireAt += dShift; G.deadline += dShift; }
+        }
+      });
+
+      /* ---------------- MODOS / ABAS ---------------- */
+      function setMode(m){
+        G.mode = m;
+        ['online','cpu'].forEach(function(x){
+          el('tab-' + x).setAttribute('aria-selected', x === m ? 'true' : 'false');
+          el('pane-' + x).classList.toggle('active', x === m);
+        });
+        clearCount(); G.phase = 'idle'; G.count = ''; hideMsg();
+        if (m === 'cpu'){ G.oppName = 'Computador'; el('oppTag').textContent = 'Computador'; setConn('local', 'modo contra o computador — não precisa de internet'); }
+        if (m === 'online'){
+          G.youName = (el('myName').value || 'Você').trim() || 'Você';
+          G.oppName = 'Oponente'; el('oppTag').textContent = 'Oponente';
+          if (!connOpen()) setConn('', 'sem conexão — crie uma sala ou entre com o código de 4 letras do seu amigo');
+          else setConn('on', 'conectado ao seu amigo');
+        }
+        renderHUD();
+      }
+      ['online','cpu'].forEach(function(m){
+        el('tab-' + m).addEventListener('click', function(){
+          setMode(m);
+        });
+      });
+      /* ---------------- ESCOLHA DE PERSONAGEM ---------------- */
+      function renderCharPicker(){
+        var grid = el('charGrid'); grid.innerHTML = '';
+        CHARACTERS.forEach(function(c){
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'charbtn';
+          b.setAttribute('aria-pressed', G.charYou === c.id ? 'true' : 'false');
+          b.innerHTML = '<span class="sw" style="background:' + c.skin + '"></span><span><b>' + c.name + '</b><small>' + c.trait + '</small></span>';
+          var sw = b.querySelector('.sw');
+          sw.style.setProperty('--hatc', c.hat);
+          sw.style.boxShadow = 'inset 0 -8px 0 ' + c.coat;
+          b.addEventListener('click', function(){
+            G.charYou = c.id;
+            el('charInfo').innerHTML = '<strong>' + c.name + '</strong> — ' + c.trait + '. Altura ' + (c.h >= 1.05 ? 'alta' : c.h <= .96 ? 'baixa' : 'média') + ': personagens mais altos têm a cabeça um pouco mais exposta.';
+            renderCharPicker(); renderHUD();
+            if (G.mode === 'online' && connOpen()) sendMsg({ t:'hello', name: myDisplayName(), char: G.charYou });
+          });
+          grid.appendChild(b);
+        });
+      }
+      (function(){
+        var sel = el('oppChar');
+        CHARACTERS.forEach(function(c){
+          var o = document.createElement('option'); o.value = c.id; o.textContent = c.name + ' — ' + c.trait;
+          sel.appendChild(o);
+        });
+        var c0 = charById(G.charYou);
+        el('charInfo').innerHTML = '<strong>' + c0.name + '</strong> — ' + c0.trait + '.';
+        renderCharPicker();
+      })();
+      el('startCpuBtn').addEventListener('click', function(){
+        ac();
+        var pick = el('oppChar').value;
+        var oppC = pick === 'random' ? randomCharExcept(G.charYou) : charById(pick);
+        G.charOpp = oppC.id;
+        setMode('cpu');
+        G.oppName = oppC.name; el('oppTag').textContent = 'Computador';
+        startMatch();
+        showMsg('Seu oponente é ' + oppC.name + ' — ' + oppC.trait + '. Coloque o mouse sobre o tambor de balas e não tire de lá.', 4200);
+      });
+
+      /* ============================================================
+         ONLINE — salas com código de 4 letras e WebRTC direto entre
+         os dois navegadores. A sinalização (logo abaixo) é um cliente
+         próprio desta página falando por HTTPS com o ntfy.sh, com
+         nova tentativa automática se a primeira não responder; a
+         partida em si roda no canal de dados WebRTC,
+         com STUN público para atravessar redes diferentes e o
+         anfitrião como autoridade (contagem, placar e fim de rodada).
+         ============================================================ */
+      var pc = null, dc = null, leaving = false, connectTimer = null;
+      function connOpen(){ return !!(dc && dc.readyState === 'open'); }
+      function sendMsg(o){ if (connOpen()){ try { dc.send(JSON.stringify(o)); } catch(e){} } }
+      function myDisplayName(){ return (el('myName').value || '').trim() || 'Pistoleiro'; }
+      function setStep(html){ el('manualStatus').innerHTML = html; }
+      function onlineError(msg){ el('onlineErr').textContent = msg || ''; if (msg) el('onlineOk').textContent = ''; }
+      function onlineOkMsg(msg){ el('onlineOk').textContent = msg || ''; if (msg) el('onlineErr').textContent = ''; }
+
+      function cleanupConn(){
+        leaving = true;
+        if (connectTimer){ clearTimeout(connectTimer); connectTimer = null; }
+        if (joinTimer){ clearTimeout(joinTimer); joinTimer = null; }
+        if (dc){ try { dc.close(); } catch(e){} dc = null; }
+        if (pc){ try { pc.close(); } catch(e){} pc = null; }
+        leaving = false;
+        closeTransports();
+        pendingCands = []; myCands = [];
+      }
+      function newPC(){
+        if (typeof RTCPeerConnection === 'undefined') return null;
+        try { return new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }); } catch(e){ return null; }
+      }
+      /* ---------- Sinalização das salas por HTTPS (ntfy.sh) ----------
+         Nenhuma biblioteca externa é carregada e nenhum WebSocket é
+         exigido: quem fala com o serviço de sinalização é este código,
+         com fetch comum (POST para publicar, GET com poll para ler).
+         O tópico é o código de 4 letras da sala
+         (duelo1v1-ABCD) e TODA mensagem é cifrada com AES-GCM cuja
+         chave é derivada do próprio código da sala — quem assinar o
+         tópico público sem saber o código só vê texto cifrado, sem
+         SDP, sem endereços IP e sem dados da conexão. Se a primeira
+         tentativa não responder, o jogo tenta de novo sozinho antes
+         de desistir. A partida roda em WebRTC direto entre os dois
+         navegadores e quem cria a sala é o anfitrião, a autoridade
+         da partida. */
+      var SIG_TOPIC_PREFIX = 'duelo1v1-';
+      var SIG_BASE = 'https://ntfy.sh/';
+      var SIG_POLL_MS = 1000;
+      var myPeerId = 'p' + Math.random().toString(36).slice(2, 10);
+      var sigTransports = [];
+      var joinTimer = null;
+      var myCands = [];
+      var pendingCands = [];
+      var room = { code: '', state: 'idle' };   // idle | creating | hosting | joining | connected
+      var hostBusy = false;   // anfitrião já está respondendo a uma entrada (evita resposta duplicada)
+      var sigKey = null;      // chave AES-GCM derivada do código de 4 letras
+      var sigActive = false;  // sondagem ligada
+      var sigPolling = false; // uma sondagem em andamento
+      var sigPollTimer = null;
+      var sigLastId = null;   // último id de mensagem do ntfy já lido
+      var sigSeen = {};       // nonce -> true (não processar a mesma mensagem 2x)
+      var sigStartTs = 0;     // ignora mensagens mais velhas que a abertura da sala
+      var sigReachable = false;
+
+      /* ----- cifra: AES-GCM com chave = SHA-256('duelo1v1-sala-' + código) ----- */
+      function sigB64Enc(bytes){
+        var s = '', b = new Uint8Array(bytes);
+        for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+        return btoa(s);
+      }
+      function sigB64Dec(str){
+        var s = atob(str), b = new Uint8Array(s.length);
+        for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+        return b;
+      }
+      function sigKeyFor(code){
+        if (!window.crypto || !crypto.subtle || !crypto.getRandomValues) return Promise.resolve(null);
+        var data = new TextEncoder().encode('duelo1v1-sala-' + String(code).toLowerCase());
+        return crypto.subtle.digest('SHA-256', data).then(function(h){
+          return crypto.subtle.importKey('raw', h, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+        }).catch(function(){ return null; });
+      }
+      function sigXorKey(code){
+        var h = 2166136261, s = 'duelo1v1-sala-' + String(code).toLowerCase();
+        for (var i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+        return h;
+      }
+      function sigEncrypt(obj){
+        var plain = new TextEncoder().encode(JSON.stringify(obj));
+        if (sigKey){
+          var iv = crypto.getRandomValues(new Uint8Array(12));
+          return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, sigKey, plain).then(function(ct){
+            var out = new Uint8Array(12 + ct.byteLength);
+            out.set(iv, 0); out.set(new Uint8Array(ct), 12);
+            return 'A:' + sigB64Enc(out);
+          });
+        }
+        // reserva para contexto sem WebCrypto (só fora de HTTPS): ofuscação com chave do código
+        var k = sigXorKey(room.code), out2 = new Uint8Array(plain.length);
+        for (var i = 0; i < plain.length; i++){ var ks = (k >> ((i % 4) * 8)) & 255; out2[i] = plain[i] ^ ks ^ (i & 255); }
+        return Promise.resolve('X:' + sigB64Enc(out2));
+      }
+      function sigDecrypt(str){
+        if (!str || typeof str !== 'string') return Promise.resolve(null);
+        try {
+          if (str.charAt(0) === 'A' && str.charAt(1) === ':'){
+            if (!sigKey) return Promise.resolve(null);
+            var raw = sigB64Dec(str.slice(2));
+            var iv = raw.slice(0, 12), ct = raw.slice(12);
+            return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, sigKey, ct).then(function(pt){
+              return JSON.parse(new TextDecoder().decode(pt));
+            }).catch(function(){ return null; });
+          }
+          if (str.charAt(0) === 'X' && str.charAt(1) === ':'){
+            var raw2 = sigB64Dec(str.slice(2)), k = sigXorKey(room.code), out = new Uint8Array(raw2.length);
+            for (var i = 0; i < raw2.length; i++){ var ks2 = (k >> ((i % 4) * 8)) & 255; out[i] = raw2[i] ^ ks2 ^ (i & 255); }
+            return Promise.resolve(JSON.parse(new TextDecoder().decode(out)));
+          }
+        } catch (e){}
+        return Promise.resolve(null);
+      }
+
+      /* ----- transporte: publicar (POST) e sondar (GET ?poll=1) o tópico ----- */
+      function sigTopic(){ return SIG_TOPIC_PREFIX + room.code.toLowerCase(); }
+      function sigPublish(obj){
+        var env = { f: myPeerId, t: Date.now(), n: Math.random().toString(36).slice(2, 12), m: obj };
+        return sigEncrypt(env).then(function(body){
+          return fetch(SIG_BASE + sigTopic(), { method: 'POST', body: body }).then(function(r){
+            if (!r.ok) throw new Error('ntfy ' + r.status);
+            return r;
+          });
+        });
+      }
+      function sigSendAll(obj){
+        if (!room.code || !sigKey) return;
+        sigPublish(obj).catch(function(){ /* a próxima tentativa reenvia; o erro aparece no status da sala */ });
+      }
+      function sigPollOnce(){
+        if (!sigActive || sigPolling || !room.code) return;
+        sigPolling = true;
+        var url = SIG_BASE + sigTopic() + '/json?poll=1' + (sigLastId ? '&since=' + encodeURIComponent(sigLastId) : '&since=all');
+        var ctl = ('AbortController' in window) ? new AbortController() : null;
+        var to = setTimeout(function(){ if (ctl) ctl.abort(); }, 6000);
+        var opts = {}; if (ctl) opts.signal = ctl.signal;
+        fetch(url, opts).then(function(r){
+          if (!r.ok) throw new Error('ntfy ' + r.status);
+          sigReachable = true;
+          return r.text();
+        }).then(function(text){
+          var jobs = [];
+          text.split('\n').forEach(function(line){
+            if (!line) return;
+            var m = null; try { m = JSON.parse(line); } catch (e){ return; }
+            if (!m || !m.id || typeof m.message !== 'string') return;
+            sigLastId = m.id;
+            jobs.push(sigDecrypt(m.message).then(function(env){
+              if (!env || !env.m || env.f === myPeerId) return; // minha própria mensagem
+              if (sigSeen[env.n]) return; sigSeen[env.n] = true;
+              if (typeof env.t === 'number' && env.t < sigStartTs - 5000) return; // mensagem velha de outra sala com o mesmo código
+              if (env.m.k === 'ping-host' && G.role === 'host' && !connOpen()){ hostCodeTaken(); return; }
+              handleSigMsg(env.m);
+            }));
+          });
+          return Promise.all(jobs);
+        }).catch(function(){ /* rede instável: a próxima sondagem tenta de novo */ })
+        .then(function(){ clearTimeout(to); sigPolling = false; sigSchedule(); });
+      }
+      function sigSchedule(){
+        if (sigPollTimer) clearTimeout(sigPollTimer);
+        if (!sigActive) return;
+        sigPollTimer = setTimeout(sigPollOnce, SIG_POLL_MS);
+      }
+      function sigStart(){
+        sigActive = true; sigLastId = null; sigSeen = {}; sigStartTs = Date.now(); sigReachable = false;
+        sigSchedule();
+      }
+      function closeTransports(){
+        sigActive = false;
+        if (sigPollTimer){ clearTimeout(sigPollTimer); sigPollTimer = null; }
+        sigTransports = [];
+      }
+      function cleanupPC(){
+        if (connectTimer){ clearTimeout(connectTimer); connectTimer = null; }
+        if (joinTimer){ clearTimeout(joinTimer); joinTimer = null; }
+        leaving = true;
+        if (dc){ try { dc.close(); } catch (e){} dc = null; }
+        if (pc){ try { pc.close(); } catch (e){} pc = null; }
+        leaving = false;
+        pendingCands = []; myCands = [];
+      }
+      function buildPC(initiator){
+        cleanupPC();
+        pc = newPC();
+        if (!pc) return false;
+        wirePC();
+        pc.onicecandidate = function(ev){
+          if (ev.candidate){ myCands.push(ev.candidate); sigSendAll({ k: 'cand', cand: ev.candidate }); }
+        };
+        if (initiator) wireDC(pc.createDataChannel('duelo'));
+        else pc.ondatachannel = function(ev){ wireDC(ev.channel); };
+        return true;
+      }
+      function addRemoteCand(c){
+        if (!pc || !c) return;
+        if (pc.remoteDescription && pc.remoteDescription.type){
+          try { var pr = pc.addIceCandidate(c); if (pr && pr.catch) pr.catch(function(){}); } catch (e){}
+        } else pendingCands.push(c);
+      }
+      function flushCands(){
+        var q = pendingCands; pendingCands = [];
+        q.forEach(function(c){ addRemoteCand(c); });
+      }
+      function handleSigMsg(obj){
+        if (!obj || !obj.k) return;
+        if (obj.k === 'offer'){
+          if (G.role !== 'host') return;
+          if (dc && (dc.readyState === 'open' || dc.readyState === 'connecting')) return;
+          if (hostBusy) return;
+          if (!buildPC(false)){ onlineError('Este navegador não suporta jogo online direto (WebRTC). Tentem outro navegador atualizado, ou joguem contra o computador.'); return; }
+          hostBusy = true;
+          setConn('wait', 'seu amigo entrou na sala ' + room.code + ' — conectando…');
+          setStep('Seu amigo entrou na sala! Conectando os dois aparelhos…');
+          pc.setRemoteDescription(obj.sdp)
+            .then(function(){ flushCands(); return pc.createAnswer(); })
+            .then(function(ans){ return pc.setLocalDescription(ans); })
+            .then(function(){ sigSendAll({ k: 'answer', sdp: pc.localDescription }); })
+            .catch(function(){ hostBusy = false; onlineError(connFailMsg()); });
+        }
+        else if (obj.k === 'answer'){
+          if (G.role !== 'guest' || !pc || pc.remoteDescription) return;
+          pc.setRemoteDescription(obj.sdp).then(function(){ flushCands(); }).catch(function(){});
+        }
+        else if (obj.k === 'cand'){ addRemoteCand(obj.cand); }
+      }
+
+      /* ----- transporte ntfy: pronto quando o tópico responde ----- */
+      function ntfyTransport(isHost, onReady, onFail){
+        var tp = { name: 'ntfy', open: false,
+          send: function(obj){ sigSendAll(obj); },
+          close: function(){ closeTransports(); } };
+        var done = false, failed = false;
+        function ok(){ if (done) return; done = true; tp.open = true; onReady(tp); }
+        function fail(){ if (failed || done) return; failed = true; onFail(tp); }
+        var deadline = setTimeout(function(){ if (!done) fail(); }, 7000);
+        sigKeyFor(room.code).then(function(key){
+          sigKey = key;
+          sigStart();
+          if (isHost){
+            // anfitrião: publica o aviso de sala aberta; se publicar, o tópico responde
+            var tries = 0;
+            var iv = setInterval(function(){
+              if (done || failed){ clearInterval(iv); return; }
+              tries++;
+              sigPublish({ k: 'ping-host' }).then(function(){ clearInterval(iv); clearTimeout(deadline); ok(); }).catch(function(){});
+            }, 1000);
+            sigPublish({ k: 'ping-host' }).then(function(){ clearInterval(iv); clearTimeout(deadline); ok(); }).catch(function(){});
+          } else {
+            // convidado: pronto quando a primeira sondagem do tópico responder
+            var iv2 = setInterval(function(){
+              if (done || failed){ clearInterval(iv2); return; }
+              if (sigReachable){ clearInterval(iv2); clearTimeout(deadline); ok(); }
+            }, 400);
+          }
+        }).catch(function(){ fail(); });
+        return tp;
+      }
+
+      /* ----- anfitrião: registra a sala no serviço de sinalização ----- */
+      function genRoomCode(){
+        var A = 'ABCDEFGHJKMNPQRSTUVWXYZ', out = '';
+        for (var i = 0; i < 4; i++) out += A[Math.floor(Math.random() * A.length)];
+        return out;
+      }
+      function hostTransportsStart(){
+        var opened = 0, failed = 0, total = 1;
+        function ok(){
+          opened++;
+          if (room.state === 'creating'){
+            room.state = 'hosting';
+            setConn('wait', 'sala ' + room.code + ' criada — aguardando seu amigo entrar com o código');
+            setStep('<strong>Sala ' + room.code + ' criada!</strong> Passe o código de <strong>4 letras</strong> para seu amigo: ele abre o jogo, digita o código em <strong>“Entrar numa sala”</strong> e toca em <strong>“Entrar na sala”</strong>.');
+            onlineOkMsg('Sala criada! Código: ' + room.code);
+          }
+        }
+        function bad(tp){
+          var i = sigTransports.indexOf(tp); if (i >= 0) sigTransports.splice(i, 1);
+          failed++;
+          if (!opened && failed >= total && room.state === 'creating'){
+            room.state = 'idle';
+            setConn('err', 'não consegui registrar a sala');
+            onlineError('Não consegui falar com o servidor das salas (ntfy.sh). Isso costuma ser VPN ligada, bloqueador de anúncios ou Wi-Fi restrito bloqueando a conexão. Tentem: desligar a VPN, usar outra rede (vale a internet do celular) ou o outro aparelho criando a sala. Se nada der, joguem contra o computador.');
+            setStep('A sala não foi registrada. Vejam a dica abaixo e toquem em <strong>“Criar sala”</strong> de novo.');
+            el('createRoomBtn').disabled = false;
+            el('joinRoomBtn').disabled = false;
+          }
+        }
+        sigTransports.push(ntfyTransport(true, ok, bad));
+      }
+      function hostCodeTaken(){
+        // já existe outra sala aberta com este código: sorteia outro na hora
+        if (G.role !== 'host' || room.state === 'connected' || room.state === 'idle') return;
+        room.code = genRoomCode();
+        el('roomCodeTxt').textContent = room.code;
+        closeTransports();
+        room.state = 'creating';
+        hostTransportsStart();
+        setStep('Aquele código já estava em uso — gerei outro na hora: <strong>' + room.code + '</strong>. É este que vale, passe ele para seu amigo!');
+        onlineOkMsg('Novo código da sala: ' + room.code);
+      }
+
+      /* ----- convidado: procura a sala, com nova tentativa automática ----- */
+      var guestRetried = false;
+      function guestSendOffer(){
+        if (!pc || !pc.localDescription) return;
+        sigSendAll({ k: 'offer', sdp: pc.localDescription });
+        myCands.forEach(function(c){ sigSendAll({ k: 'cand', cand: c }); });
+      }
+      function guestArmTimer(){
+        if (joinTimer) clearTimeout(joinTimer);
+        joinTimer = setTimeout(function(){
+          if (connOpen()) return;
+          if (!guestRetried) guestRetry();
+          else guestFail('Não encontrei a sala ' + room.code + '. Confira se digitou as 4 letras igualzinho ao código do seu amigo e se a sala dele ainda está aberta — e tentem de novo.');
+        }, 16000);
+      }
+      function guestBuildAndOffer(){
+        if (!buildPC(true)){
+          guestFail('Este navegador não suporta jogo online direto (WebRTC). Tentem outro navegador atualizado, ou joguem contra o computador.');
+          return;
+        }
+        // envia a oferta sem esperar todos os candidatos ICE: a oferta fica
+        // pequena (cabe numa mensagem do ntfy) e os candidatos vão chegando
+        // aos poucos por mensagens próprias — é o truque normal do WebRTC
+        pc.createOffer()
+          .then(function(o){ return pc.setLocalDescription(o); })
+          .then(function(){ guestSendOffer(); guestArmTimer(); })
+          .catch(function(){ guestFail('Não consegui preparar a conexão neste navegador. Recarregue a página e tente de novo.'); });
+      }
+      function guestRetry(){
+        if (G.role !== 'guest' || room.state !== 'joining') return;
+        if (guestRetried){
+          guestFail('Não encontrei a sala ' + room.code + ' nem tentando de novo. Confira se digitou as 4 letras igualzinho ao código do seu amigo e se a sala dele ainda está aberta — e tentem de novo.');
+          return;
+        }
+        guestRetried = true;
+        closeTransports();
+        cleanupPC();
+        setConn('wait', 'procurando a sala ' + room.code + ' — tentando de novo…');
+        setStep('Não achei a sala de primeira — <strong>tentando de novo sozinho</strong>, sem você precisar fazer nada…');
+        setTimeout(function(){
+          if (G.role === 'guest' && room.state === 'joining' && !connOpen()) guestStart();
+        }, 2500);
+      }
+      function guestFail(msg){
+        if (joinTimer){ clearTimeout(joinTimer); joinTimer = null; }
+        room.state = 'idle';
+        setConn('err', 'não consegui entrar na sala');
+        onlineError(msg);
+        setStep('Não deu para entrar desta vez. Corrijam o que a mensagem diz e toquem em <strong>“Entrar na sala”</strong> de novo.');
+        el('joinRoomBtn').disabled = false;
+        el('createRoomBtn').disabled = false;
+      }
+      function guestStart(){
+        var opened = false;
+        var tp = ntfyTransport(false,
+          function(){ opened = true; guestBuildAndOffer(); },
+          function(){ if (!opened) guestRetry(); });
+        sigTransports.push(tp);
+      }
+
+      function connFailMsg(){
+        return 'A conexão entre os dois aparelhos falhou depois de entrar na sala. Tentem criar uma sala nova (o código muda) e entrar de novo. Se a rede de um dos dois estiver bloqueando a conexão direta (VPN ligada, Wi-Fi restrito), tentem outra rede, como a internet do celular. Se mesmo assim não fechar, joguem contra o computador.';
+      }
+      function wirePC(){
+        pc.oniceconnectionstatechange = function(){
+          if (!pc) return;
+          if (pc.iceConnectionState === 'failed'){
+            setConn('err', 'a conexão direta falhou');
+            onlineError(connFailMsg());
+            setStep('A conexão falhou. Recarreguem a página nos dois aparelhos e gerem códigos novos, do zero.');
+          } else if (pc.iceConnectionState === 'disconnected' && connOpen()){
+            setConn('err', 'a conexão caiu');
+          }
+        };
+      }
+      function wireDC(channel){
+        dc = channel;
+        channel.onopen = function(){
+          if (channel !== dc) return;
+          if (connectTimer){ clearTimeout(connectTimer); connectTimer = null; }
+          room.state = 'connected';
+          setConn('on', 'conectado ao seu amigo — sala ' + (room.code || '') + ' fechada, partida sincronizada');
+          onlineOkMsg(G.role === 'host' ? 'Conectado! Toque em “Começar o duelo”.' : 'Conectado! Aguarde quem criou a partida tocar em “Começar o duelo”.');
+          setStep(G.role === 'host' ? '<strong>Conectado!</strong> Toque em <strong>“Começar o duelo”</strong> aqui embaixo.' : '<strong>Conectado!</strong> Aguarde quem criou a partida tocar em “Começar o duelo”.');
+          el('startOnlineBtn').disabled = G.role !== 'host';
+          el('startOnlineBtn').textContent = 'Começar o duelo';
+          el('leaveBtn').disabled = false;
+          sendMsg({ t:'hello', name: myDisplayName(), char: G.charYou });
+          if (G.role === 'host') sendSyncPing();
+          if (G.mode !== 'online') setMode('online');
+        };
+        channel.onmessage = function(ev){
+          var m = null;
+          try { m = JSON.parse(ev.data); } catch(e){ return; }
+          onMsg(m);
+        };
+        channel.onclose = function(){
+          if (channel !== dc || leaving) return;
+          setConn('err', 'seu amigo saiu — conexão encerrada');
+          el('startOnlineBtn').disabled = true;
+          room.state = 'idle';
+          el('createRoomBtn').disabled = false;
+          el('joinRoomBtn').disabled = false;
+          cleanupPC();
+          showMsg('Seu amigo saiu da partida. Criem uma sala nova ou joguem contra o computador.', 6000);
+          clearCount(); if (G.mode === 'online') G.phase = 'idle';
+        };
+        channel.onerror = function(){ if (channel === dc) setConn('err', 'erro na conexão com o amigo'); };
+      }
+
+      function sendSyncPing(){ sendMsg({ t:'sync', h: performance.now() }); }
+      setInterval(function(){ if (G.role === 'host' && connOpen()) sendSyncPing(); }, 8000);
+      // durante a contagem, reafirma o estado do tambor a cada 600 ms: se uma
+      // mensagem de entrada/saída se perder, os dois se reencontram sozinhos
+      setInterval(function(){ if (G.mode === 'online' && G.phase === 'countdown' && connOpen()) sendMsg({ t:'hover', on: G.hoverCyl }); }, 600);
+
+      function onMsg(m){
+        if (!m || !m.t) return;
+        if (m.t === 'hello'){
+          G.oppName = (m.name || 'Oponente').slice(0, 14);
+          if (m.char) G.charOpp = m.char; // o pistoleiro do amigo aparece com a roupa e o chapéu dele
+          el('oppTag').textContent = 'Amigo';
+          renderHUD();
+        }
+        else if (m.t === 'sync'){
+          // convidado devolve o instante do relógio dele para o anfitrião medir o desvio
+          sendMsg({ t:'syncBack', h: m.h, g: performance.now() });
+        }
+        else if (m.t === 'syncBack'){
+          var nowS = performance.now();
+          G.rtt = Math.max(0, Math.round(nowS - m.h));
+          G.clockOffset = m.g - m.h - (nowS - m.h) / 2; // relógio do convidado − relógio do anfitrião
+          sendMsg({ t:'offset', v: G.clockOffset, rtt: G.rtt });
+          if (connOpen()) setConn('on', 'conectado ao seu amigo — partida sincronizada · ping ' + G.rtt + ' ms');
+        }
+        else if (m.t === 'offset'){
+          G.clockOffset = m.v; G.rtt = m.rtt || 0;
+          if (connOpen()) setConn('on', 'conectado ao seu amigo — partida sincronizada · ping ' + G.rtt + ' ms');
+        }
+        else if (m.t === 'aim'){ G.aimOpp.y = m.y; } // só a altura atravessa a rede
+        else if (m.t === 'hover'){ G.remoteHover = !!m.on; } // o amigo está sobre o tambor dele?
+        else if (m.t === 'go'){
+          // anfitrião confirmou que os dois estão sobre o tambor: a contagem
+          // começa no instante agendado, convertido para o relógio local
+          if (G.phase === 'countdown'){
+            G.guestGo = true; G.countStep = -1;
+            G.countT0 = (typeof m.at === 'number' && G.clockOffset !== null) ? m.at + G.clockOffset : performance.now() + 400;
+          }
+        }
+        else if (m.t === 'hold'){ G.guestGo = false; } // alguém saiu do tambor: volta ao PREPAREM-SE
+        else if (m.t === 'shot'){
+          if (G.phase === 'fire'){
+            shoot('opp', m.y * H, { hit: m.hit, dmg: m.dmg, zone: m.zone });
+          } else {
+            // tiro fora da fase (atraso de rede): só o visual, na altura recebida
+            addTracer('opp', m.y * H, null);
+          }
+        }
+        else if (m.t === 'start'){
+          if (m.round === 1){ G.scoreYou = 0; G.scoreOpp = 0; G.pointsYou = 0; G.pointsOpp = 0; G.stats = { shots: 0, hits: 0, bestReact: 0 }; }
+          G.round = m.round;
+          // início agendado no relógio do anfitrião, convertido para o relógio local
+          if (G.role === 'guest' && typeof m.at === 'number' && G.clockOffset !== null){
+            startCountdownAt(m.at + G.clockOffset);
+          } else startCountdown();
+        }
+        else if (m.t === 'roundEnd'){
+          // placar oficial de quem hospeda, traduzido para o meu lado — vale sempre,
+          // mesmo se eu já fechei a rodada aqui (é ele que corrige divergências)
+          var myWin = (G.role === 'host' && m.winner === 'host') || (G.role === 'guest' && m.winner === 'guest');
+          var w = m.winner === 'draw' ? 'draw' : (myWin ? 'you' : 'opp');
+          G.scoreYou = G.role === 'host' ? m.sH : m.sG;
+          G.scoreOpp = G.role === 'host' ? m.sG : m.sH;
+          G.winner = w;
+          if (!G.endHandled){
+            G.endHandled = true; G.phase = 'roundEnd';
+            renderHUD();
+            setTimeout(function(){
+              if (G.scoreYou >= WIN_SCORE || G.scoreOpp >= WIN_SCORE) endMatch();
+              else if (G.role === 'guest') showMsg('Preparando a próxima rodada…', 2000);
+            }, 3000);
+          } else renderHUD();
+        }
+      }
+
+      /* ---------- Criar sala: o código de 4 letras aparece na hora ---------- */
+      el('createRoomBtn').addEventListener('click', function(){
+        ac();
+        onlineError(''); onlineOkMsg('');
+        if (typeof RTCPeerConnection === 'undefined'){
+          onlineError('Este navegador não suporta jogo online (WebRTC). Tentem outro navegador atualizado, ou joguem contra o computador.');
+          return;
+        }
+        cleanupConn();
+        G.role = 'host';
+        room.code = genRoomCode();
+        room.state = 'creating';
+        el('roomCodeTxt').textContent = room.code;
+        el('roomCodeBox').classList.add('show');
+        el('leaveBtn').disabled = false;
+        el('joinRoomBtn').disabled = true;
+        this.disabled = true;
+        setConn('wait', 'sala ' + room.code + ' criada — registrando a sala…');
+        setStep('<strong>Sala ' + room.code + ' criada!</strong> Passe o código de <strong>4 letras</strong> para seu amigo: ele abre o jogo, digita o código em <strong>“Entrar numa sala”</strong> e toca em <strong>“Entrar na sala”</strong>.');
+        onlineOkMsg('Código da sala: ' + room.code + ' — passe para seu amigo.');
+        hostTransportsStart();
+      });
+
+      /* ---------- Entrar numa sala com o código de 4 letras ---------- */
+      el('joinRoomBtn').addEventListener('click', function(){
+        ac();
+        onlineError(''); onlineOkMsg('');
+        var code = (el('joinCode').value || '').toUpperCase().replace(/[^A-Z]/g, '');
+        el('joinCode').value = code;
+        if (code.length !== 4){
+          onlineError('O código da sala tem 4 letras: digite as 4 letras que seu amigo te passou.');
+          el('joinCode').focus();
+          return;
+        }
+        if (typeof RTCPeerConnection === 'undefined'){
+          onlineError('Este navegador não suporta jogo online (WebRTC). Tentem outro navegador atualizado, ou joguem contra o computador.');
+          return;
+        }
+        cleanupConn();
+        G.role = 'guest';
+        guestRetried = false;
+        room.code = code;
+        room.state = 'joining';
+        this.disabled = true;
+        el('createRoomBtn').disabled = true;
+        el('leaveBtn').disabled = false;
+        setConn('wait', 'procurando a sala ' + code + '…');
+        setStep('Procurando a sala <strong>' + code + '</strong> e conectando com seu amigo…');
+        guestStart();
+      });
+      el('joinCode').addEventListener('input', function(){
+        this.value = this.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+      });
+      el('joinCode').addEventListener('keydown', function(e){
+        if (e.key === 'Enter'){ e.preventDefault(); el('joinRoomBtn').click(); }
+      });
+
+      /* ---------- Copiar o código da sala ---------- */
+      el('copyRoomBtn').addEventListener('click', function(){
+        var txt = (room.code || el('roomCodeTxt').textContent || '').trim();
+        if (!txt || txt === '----'){ onlineError('Crie a sala primeiro: o código de 4 letras aparece aqui.'); return; }
+        function done(){ onlineOkMsg('Código ' + txt + ' copiado! Mande para seu amigo.'); }
+        function fallback(){
+          var ta = document.createElement('textarea');
+          ta.value = txt; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); done(); }
+          catch(e){ onlineError('Não consegui copiar automaticamente — o código é ' + txt + ', é só falar ou mostrar a tela para seu amigo.'); }
+          document.body.removeChild(ta);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, fallback);
+        else fallback();
+      });
+
+      el('startOnlineBtn').addEventListener('click', function(){
+        ac();
+        if (G.role !== 'host' || !connOpen()) return;
+        G.youName = myDisplayName();
+        sendMsg({ t:'hello', name: myDisplayName(), char: G.charYou });
+        sendSyncPing();
+        var at = performance.now() + 1200; // os dois aparelhos começam a contar no mesmo instante
+        sendMsg({ t:'start', round: 1, at: at });
+        // zera o placar e abre a rodada UMA vez só (antes startMatch + startCountdownAt
+        // reiniciavam a rodada duas vezes, com som de recarga dobrado)
+        G.scoreYou = 0; G.scoreOpp = 0; G.round = 1;
+        G.pointsYou = 0; G.pointsOpp = 0;
+        G.stats = { shots: 0, hits: 0, bestReact: 0 };
+        el('roundLbl').textContent = 'Rodada 1';
+        startCountdownAt(at);
+        this.textContent = 'Recomeçar o duelo';
+      });
+
+      el('leaveBtn').addEventListener('click', function(){
+        cleanupConn();
+        el('startOnlineBtn').disabled = true;
+        el('leaveBtn').disabled = true;
+        el('createRoomBtn').disabled = false;
+        el('joinRoomBtn').disabled = false;
+        el('roomCodeBox').classList.remove('show');
+        room.state = 'idle'; room.code = '';
+        G.role = null; clearCount(); G.phase = 'idle';
+        setConn('', 'você saiu da sala — crie uma sala nova ou entre com o código do seu amigo');
+        setStep('Você saiu da sala. Para jogar de novo: um cria a sala e o outro entra com o código de 4 letras.');
+        onlineOkMsg(''); onlineError('');
+        renderHUD();
+      });
+
+      el('myName').addEventListener('change', function(){ G.youName = myDisplayName(); renderHUD(); });
+
+      setMode('online');
+    })();
+    </script>
+  </body>
+</html>
