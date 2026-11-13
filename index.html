@@ -1393,8 +1393,17 @@
       var B_JOINTS = ['hip','sho','head','kneeF','bootF','kneeB','bootB','elbL','handL','elbG','handG'];
       var B_STAND = { hip:[0,302], sho:[8,230], head:[10,180], kneeF:[28,350], bootF:[34,385], kneeB:[-22,346], bootB:[-32,385], elbL:[-16,272], handL:[-9,308], elbG:null, handG:null, gunAng:null, headTilt:0 };
       function bPose(base, over){ var p = {}, k; for (k in base) p[k] = base[k]; if (over) for (k in over) p[k] = over[k]; return p; }
-      var B_GROUND = bPose(B_STAND, { hip:[-34,354], sho:[20,316], head:[28,280], kneeF:[-84,366], bootF:[-124,381], kneeB:[-72,379], bootB:[-110,387], elbL:[4,350], handL:[-16,385], headTilt:.12 });
-      var B_DEAD = bPose(B_STAND, { hip:[-40,374], sho:[-2,368], head:[25,373], kneeF:[-82,378], bootF:[-120,383], kneeB:[-74,386], bootB:[-108,388], elbL:[22,382], handL:[46,386], elbG:[20,380], handG:[48,386], gunAng:.9, headTilt:1.3 });
+      var B_GROUND = bPose(B_STAND, { hip:[-34,354], sho:[20,316], head:[28,280], kneeF:[-80,372], bootF:[-112,381], kneeB:[-70,378], bootB:[-100,386], elbL:[4,350], handL:[-16,385], headTilt:.12 });
+      // MORTO DEITADO - refeito para o modelo 3D: o corpo deita chapado
+      // no chão, com o comprimento real do modelo (~200 px da cabeça à
+      // bota), torso sem compressão, pernas juntas e estendidas, braços
+      // ao lado do corpo e mãos junto ao quadril, revólver caído ao lado
+      // da mão. A pose 2D antiga comprimia o torso para 38 px (o modelo
+      // tem 62 px de torso) e o IK curvava o corpo em arco, com as
+      // pernas para o alto. Cabeça para frente (de bruços) e pés para
+      // trás; B_DEAD_BACK é o espelho (de costas, cabeça para trás).
+      var B_DEAD = bPose(B_STAND, { hip:[-20,380], sho:[42,380], head:[100,368], kneeF:[-61,380], bootF:[-103,386], kneeB:[-59,380], bootB:[-99,386], elbL:[8,379], handL:[-26,384], elbG:[10,379], handG:[-24,384], gunAng:.9, headTilt:.05 });
+      var B_DEAD_BACK = bPose(B_STAND, { hip:[20,380], sho:[-42,380], head:[-100,378], kneeF:[61,380], bootF:[103,386], kneeB:[59,380], bootB:[99,386], elbL:[-8,379], handL:[26,384], elbG:[-10,379], handG:[24,384], gunAng:-.9, headTilt:-.05 });
       var B_CROUCH = bPose(B_STAND, { hip:[2,326], sho:[12,256], head:[14,206], kneeF:[42,350], bootF:[36,386], kneeB:[-32,350], bootB:[-40,386], elbL:[-10,294], handL:[-4,328], headTilt:.1 });
 
       /* PARADO — respiração e troca de peso, em ciclo de 2,6 s */
@@ -1470,8 +1479,8 @@
         { t:140,  ease:'in',  pose:bPose(B_STAND, { hip:[0,325], sho:[2,255], head:[2,209], kneeF:[40,353], bootF:[30,387], kneeB:[-4,355], bootB:[-28,387], elbL:[-13,288], handL:[-5,328], elbG:[21,264], handG:[27,302], gunAng:.7, headTilt:.22 }) },
         { t:360,  ease:'in',  pose:bPose(B_STAND, { hip:[-3,331], sho:[11,269], head:[17,225], kneeF:[25,357], bootF:[26,388], kneeB:[-21,353], bootB:[-35,387], elbL:[-6,296], handL:[4,336], elbG:[29,284], handG:[35,324], gunAng:1.0, headTilt:.48 }) },
         { t:620,  ease:'in',  pose:bPose(B_STAND, { hip:[-15,345], sho:[7,301], head:[21,263], kneeF:[9,361], bootF:[11,379], kneeB:[-27,359], bootB:[-25,377], elbL:[17,320], handL:[11,362], elbG:[31,320], handG:[31,354], gunAng:1.25, headTilt:.62 }) },
-        { t:800,  ease:'out', pose:bPose(B_DEAD, { sho:[-2,372], head:[25,377] }) },
-        { t:950,  ease:'io',  pose:bPose(B_DEAD, { sho:[-2,365], head:[25,370] }) },
+        { t:800,  ease:'out', pose:bPose(B_DEAD, { sho:[42,378], head:[100,367] }) },
+        { t:950,  ease:'io',  pose:bPose(B_DEAD, { sho:[42,379], head:[100,368] }) },
         { t:1150, ease:'io',  pose:B_DEAD }
       ]};
       /* MORTE PARA TRÁS (tiro na cabeça ou no peito que mata) — a cabeça é
@@ -1482,15 +1491,15 @@
         { t:140,  ease:'in',  pose:bPose(B_STAND, { hip:[-4,310], sho:[-6,240], head:[-14,192], kneeF:[34,352], bootF:[34,386], kneeB:[-18,350], bootB:[-30,386], elbL:[-24,258], handL:[-34,232], elbG:[16,262], handG:[22,300], gunAng:-.5, headTilt:-.35 }) },
         { t:360,  ease:'in',  pose:bPose(B_STAND, { hip:[-12,330], sho:[-16,262], head:[-26,214], kneeF:[24,356], bootF:[24,387], kneeB:[-26,354], bootB:[-38,386], elbL:[-30,266], handL:[-40,246], elbG:[10,278], handG:[14,320], gunAng:-.8, headTilt:-.6 }) },
         { t:620,  ease:'in',  pose:bPose(B_STAND, { hip:[-24,350], sho:[-24,300], head:[-32,256], kneeF:[8,362], bootF:[10,380], kneeB:[-30,360], bootB:[-28,378], elbL:[-20,300], handL:[-28,330], elbG:[4,310], handG:[8,348], gunAng:-1.1, headTilt:-.85 }) },
-        { t:800,  ease:'out', pose:bPose(B_DEAD, { hip:[40,372], sho:[2,368], head:[-25,373], kneeF:[82,378], bootF:[120,383], kneeB:[74,386], bootB:[108,388], elbL:[-22,382], handL:[-46,386], elbG:[-20,380], handG:[-48,386], headTilt:-1.2 }) },
-        { t:950,  ease:'io',  pose:bPose(B_DEAD, { hip:[40,370], sho:[2,365], head:[-25,370], kneeF:[82,378], bootF:[120,383], kneeB:[74,386], bootB:[108,388], elbL:[-22,382], handL:[-46,386], elbG:[-20,380], handG:[-48,386], headTilt:-1.25 }) },
-        { t:1150, ease:'io',  pose:bPose(B_DEAD, { hip:[40,374], sho:[2,368], head:[-25,373], kneeF:[82,378], bootF:[120,383], kneeB:[74,386], bootB:[108,388], elbL:[-22,382], handL:[-46,386], elbG:[-20,380], handG:[-48,386], headTilt:-1.3 }) }
+        { t:800,  ease:'out', pose:bPose(B_DEAD_BACK, { sho:[-42,378], head:[-100,377] }) },
+        { t:950,  ease:'io',  pose:bPose(B_DEAD_BACK, { sho:[-42,379], head:[-100,378] }) },
+        { t:1150, ease:'io',  pose:B_DEAD_BACK }
       ]};
       /* MORTE NO CHÃO — ele desaba da posição de tiro até o corpo caído */
       var B_DEATH_GROUND = { dur:800, frames:[
         { t:0,   ease:'in',  pose:B_GROUND },
         { t:200, ease:'in',  pose:bPose(B_GROUND, { sho:[18,330], head:[26,298], elbG:[40,330], handG:[44,352], gunAng:1.1, headTilt:.4 }) },
-        { t:480, ease:'in',  pose:bPose(B_DEAD, { hip:[-38,362], sho:[-2,350], head:[25,338], headTilt:.9 }) },
+        { t:480, ease:'in',  pose:bPose(B_GROUND, { hip:[-27,367], sho:[31,348], head:[64,330], kneeF:[-70,375], bootF:[-110,384], kneeB:[-65,378], bootB:[-105,385], headTilt:.5 }) },
         { t:800, ease:'out', pose:B_DEAD }
       ]};
       /* COMEMORAÇÃO — agacha (antecipação), pula com a arma para o alto, cai e recupera */
@@ -1539,9 +1548,14 @@
       }
       function bGunFromAngle(sho, angle){
         var dir = [Math.cos(angle), Math.sin(angle)], perp = [-dir[1], dir[0]];
+        // a mão a 42 px (antes 48) e o cotovelo 12 px abaixo da linha
+        // ombro-mão (antes 6): o braço do modelo tem 69 px de alcance,
+        // então a 48 px ele ficava quase esticado e o cotovelo dobrava
+        // para trás (invisível de frente, parecia uma tábua). Mais perto
+        // e mais para baixo, o cotovelo dobra no plano da tela.
         return {
-          e: [sho[0] + dir[0] * 24 + perp[0] * 6, sho[1] + dir[1] * 24 + perp[1] * 6],
-          h: [sho[0] + dir[0] * 48 + perp[0] * 3, sho[1] + dir[1] * 48 + perp[1] * 3],
+          e: [sho[0] + dir[0] * 22 + perp[0] * 12, sho[1] + dir[1] * 22 + perp[1] * 12],
+          h: [sho[0] + dir[0] * 42 + perp[0] * 3, sho[1] + dir[1] * 42 + perp[1] * 3],
           a: angle
         };
       }
@@ -1771,7 +1785,7 @@
       }
       var U_STAND = bPose(B_STAND, { hip:[0,301], sho:[9,227], head:[12,177], kneeF:[26,350], bootF:[32,385], kneeB:[-20,346], bootB:[-30,385], elbL:[-12,270], handL:[-5,306] });
       var U_GROUND = bPose(B_GROUND, { sho:[21,313], head:[30,277] });
-      var U_DEAD = bPose(B_DEAD, { head:[27,370] });
+      var U_DEAD = bPose(B_DEAD, { head:[102,368] });
       var U_CROUCH = bPose(B_CROUCH, { sho:[13,253], head:[16,203] });
       var U_SET = { STAND:U_STAND, GROUND:U_GROUND, DEAD:U_DEAD, CROUCH:U_CROUCH, IDLE:uSeq(B_IDLE), WALK:uSeq(B_WALK), HIT_BODY:uSeq(B_HIT_BODY), HIT_HEAD:uSeq(B_HIT_HEAD), HIT_CHEST:uSeq(B_HIT_CHEST), HIT_BELLY:uSeq(B_HIT_BELLY), FALL:uSeq(B_FALL), GROUND_IDLE:uSeq(B_GROUND_IDLE), DEATH:uSeq(B_DEATH), DEATH_BACK:uSeq(B_DEATH_BACK), DEATH_GROUND:uSeq(B_DEATH_GROUND), CELEB:uSeq(B_CELEB) };
       function drawBusterFig(cx, flip, colors, angle, side, now, seed, hatOff, extra){
@@ -2107,7 +2121,7 @@
         halo.position.set(10.5, 7.5, -38.5); scene.add(halo);
         // luz: sol quente do sertão + céu
         var hemi = new THREE.HemisphereLight(0xffe8c0, 0x8a4a28, 0.85); scene.add(hemi);
-        var sunL = new THREE.DirectionalLight(0xffe0b0, 2.1);
+        var sunL = new THREE.DirectionalLight(0xffe0b0, 1.7);
         sunL.position.set(7, 11, 5); sunL.castShadow = true;
         sunL.shadow.mapSize.set(2048, 2048);
         sunL.shadow.camera.left = -9; sunL.shadow.camera.right = 9;
@@ -2122,7 +2136,7 @@
         // luz de contorno fria, vindo de trás e da esquerda: separa o
         // boneco do fundo empoeirado e dá volume redondo às bordas — sem
         // ela, o lado da sombra some no cenário e o corpo parece recortado
-        var rimL = new THREE.DirectionalLight(0xbfd4e6, 0.8);
+        var rimL = new THREE.DirectionalLight(0xbfd4e6, 0.6);
         rimL.position.set(-5, 6, -7); scene.add(rimL);
         // chão de terra vermelha com relevo — plano no meio do duelo, ondulado nas bordas
         var gg = new THREE.PlaneGeometry(70, 46, 56, 36);
@@ -2698,9 +2712,35 @@
         var hipToHeadM = (bones.Head && bones.Hips) ? (info.restPos.Head.y - info.restPos.Hips.y) : 0;
         var hipToHeadU = (302 - 180) * S3; // quadril-cabeça do desenho em pé
         info.torsoStretch = hipToHeadM > 0 ? hipToHeadU / (hipToHeadM * info.scale) : 1;
-        ['Hips','Abdomen','Torso','Chest','Neck','Head'].forEach(function(n){
-          if (info.restLocal[n]) info.restLocal[n].multiplyScalar(info.torsoStretch);
+        // alongamento por segmento: o pescoço do modelo já é comprido
+        // (0,37 - metade da coluna). Alongar tudo igual estica o
+        // pescoço e deixa ele comprido demais. O torso absorve o
+        // alongamento (é o torso comprido do desenho original) e o
+        // pescoço/cabeça quase não alongam: a cabeça continua na faixa
+        // de tiro e o pescoço fica com comprimento normal. O quadril
+        // não alonga (se alongar, as pernas sobem junto e os pés flutuam).
+        var neckHeadM = 0, torsoSegM = 0, neckF = 1.15, torsoF = 1;
+        if (bones.Head && bones.Chest && bones.Hips){
+          neckHeadM = info.restPos.Head.y - info.restPos.Chest.y;
+          torsoSegM = info.restPos.Chest.y - info.restPos.Hips.y;
+        }
+        if (hipToHeadM > 0 && torsoSegM > 0){
+          var targetTot = hipToHeadU / info.scale;
+          torsoF = Math.max(1, (targetTot - neckHeadM * neckF) / torsoSegM);
+        }
+        info.neckStretch = neckF; info.torsoSegStretch = torsoF;
+        ['Abdomen','Torso','Chest'].forEach(function(n){
+          if (info.restLocal[n]) info.restLocal[n].multiplyScalar(torsoF);
         });
+        ['Neck','Head'].forEach(function(n){
+          if (info.restLocal[n]) info.restLocal[n].multiplyScalar(neckF);
+        });
+        // o pescoço do modelo inclina para frente (restLocal z 0,10): em
+        // pé isso é natural, mas deitado de bruços esse avanço vira uma
+        // queda - o pescoço afunda 0,13 e a cabeça cava o chão. Zera o
+        // avanço (pescoço vertical) e a direção de repouso acompanha.
+        if (info.restLocal['Neck']) info.restLocal['Neck'].z = 0;
+        if (info.restDir['Neck']) info.restDir['Neck'].set(0, 1, 0);
         if (bones.FootL) info.ankleH = Math.max(0, info.restPos.FootL.y);
         return info;
       }
@@ -2723,17 +2763,27 @@
         return hatG;
       }
       // violão do Buster: corpo em 8, tampo claro, boca, cavalete, braço e cabeça
+      // violão do Buster: corpo em 8 com cintura marcada, tampo claro,
+      // boca grande com anel, cavalete, braço comprido e claro com
+      // trastes - na diagonal nas costas, com o braço subindo para
+      // cima e para trás (visível por cima do ombro)
       function makeGuitar3D(){
         var guitarG = new THREE.Group();
-        var gLow = sph3(0.20, mat3('#5d3817', .8, 0, 'leather')); gLow.scale.set(1, 1.1, 0.30); guitarG.add(gLow);
-        var gUp = sph3(0.15, mat3('#5d3817', .8, 0, 'leather')); gUp.scale.set(1, 1.05, 0.30); gUp.position.set(0, 0.17, 0); guitarG.add(gUp);
-        var gTop = sph3(0.185, mat3('#a8763e', .75, 0)); gTop.scale.set(1, 1.1, 0.30); gTop.position.set(0, 0, 0.02); guitarG.add(gTop);
-        var gTop2 = sph3(0.135, mat3('#a8763e', .75, 0)); gTop2.scale.set(1, 1.05, 0.30); gTop2.position.set(0, 0.17, 0.02); guitarG.add(gTop2);
-        var hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 14), mat3('#2a1a0c', .9, 0));
-        hole.position.set(0, 0.02, 0.085); guitarG.add(hole);
-        var bridge = box3(0.12, 0.03, 0.02, mat3('#3a2410', .8, 0)); bridge.position.set(0, -0.09, 0.085); guitarG.add(bridge);
-        var gneck = box3(0.05, 0.36, 0.04, mat3('#6e4525', .8, 0, 'leather')); gneck.position.set(0, 0.36, 0); guitarG.add(gneck);
-        var ghead = box3(0.07, 0.06, 0.04, mat3('#3a2410', .8, 0)); ghead.position.set(0, 0.55, 0); guitarG.add(ghead);
+        var gLow = sph3(0.21, mat3('#5d3817', .8, 0, 'leather')); gLow.scale.set(1, 1.12, 0.32); gLow.position.set(0, -0.08, 0); guitarG.add(gLow);
+        var gUp = sph3(0.145, mat3('#5d3817', .8, 0, 'leather')); gUp.scale.set(1, 1.05, 0.32); gUp.position.set(0, 0.20, 0); guitarG.add(gUp);
+        var gTop = sph3(0.195, mat3('#b0824a', .75, 0)); gTop.scale.set(1, 1.12, 0.32); gTop.position.set(0, -0.08, 0.025); guitarG.add(gTop);
+        var gTop2 = sph3(0.13, mat3('#b0824a', .75, 0)); gTop2.scale.set(1, 1.05, 0.32); gTop2.position.set(0, 0.20, 0.025); guitarG.add(gTop2);
+        var ring = new THREE.Mesh(new THREE.RingGeometry(0.055, 0.075, 20), mat3('#d9b380', .8, 0));
+        ring.position.set(0, 0.06, 0.095); guitarG.add(ring);
+        var hole = new THREE.Mesh(new THREE.CircleGeometry(0.055, 18), mat3('#1c0f06', .9, 0));
+        hole.position.set(0, 0.06, 0.096); guitarG.add(hole);
+        var bridge = box3(0.16, 0.035, 0.02, mat3('#2e1c0c', .8, 0)); bridge.position.set(0, -0.14, 0.095); guitarG.add(bridge);
+        var gneck = box3(0.055, 0.52, 0.045, mat3('#8a5a30', .8, 0, 'leather')); gneck.position.set(0, 0.48, 0); guitarG.add(gneck);
+        var ghead = box3(0.08, 0.09, 0.05, mat3('#3a2410', .8, 0)); ghead.position.set(0, 0.76, 0); guitarG.add(ghead);
+        for (var gf = 0; gf < 5; gf++){
+          var fret = box3(0.055, 0.008, 0.048, mat3('#d9b380', .8, 0));
+          fret.position.set(0, 0.30 + gf * 0.09, 0); guitarG.add(fret);
+        }
         return guitarG;
       }
       // revólver do jogo: cano, tambor que gira, armação, cabo e martelo
@@ -2809,7 +2859,8 @@
               var mm = mats[nm];
               if (scheme[nm]) mm.color.set(scheme[nm]);
               mm.metalness = 0;
-              mm.roughness = (nm === 'Skin' || nm === 'Human.body') ? 0.62 : 0.88;
+              mm.roughness = (nm === 'Skin' || nm === 'Human.body') ? 0.78 : 0.90;
+              mm.envMapIntensity = (nm === 'Skin' || nm === 'Human.body') ? 0.35 : 0.25;
               return mm;
             });
             o.material = Array.isArray(o.material) ? out : out[0];
@@ -2929,14 +2980,24 @@
         // --- coluna, pescoço e cabeça (direções amostradas) ---
         var spineDir = glbDirFromJoints(info, flip, J.hip.x, J.hip.y, J.sho.x, J.sho.y, _gv1);
         var qSpine = _gq1.setFromUnitVectors(info.restDir.Torso, spineDir);
+        // deitado: a coluna precisa ficar reta, não curvada. Os pesos em
+        // gradiente (0,4..1,0) curvam o tronco e levantam o peito 0,4 do
+        // chão quando o corpo está deitado. Quando a coluna está perto da
+        // horizontal (caído/morto), todos os pesos vão para 1,0 e a coluna
+        // fica reta - o corpo deita chapado no chão, sem arco. A
+        // transição é suave (30 a 60 graus da vertical), então a queda
+        // endireita o corpo aos poucos, como um tombo com peso.
+        var spineUp = Math.max(-1, Math.min(1, spineDir.y));
+        var straightT = Math.max(0, Math.min(1, (0.866 - spineUp) / 0.366));
         var neckDir = glbDirFromJoints(info, flip, J.sho.x, J.sho.y, J.head.x, J.head.y, _gv2);
         var qNeck = _gq2.setFromUnitVectors(info.restDir.Neck, neckDir);
         var mq = {};
         mq['Root'] = info.restQuat['Root'];
         ['Body','Hips','Abdomen','Torso','Chest'].forEach(function(n){
-          mq[n] = new THREE.Quaternion().slerpQuaternions(info.restQuat[n], _gq3.copy(qSpine).multiply(info.restQuat[n]), GLB_SPINE_W[n]);
+          var wSp = GLB_SPINE_W[n] + (1 - GLB_SPINE_W[n]) * straightT;
+          mq[n] = new THREE.Quaternion().slerpQuaternions(info.restQuat[n], _gq3.copy(qSpine).multiply(info.restQuat[n]), wSp);
         });
-        mq['Neck'] = new THREE.Quaternion().slerpQuaternions(info.restQuat.Neck, _gq3.copy(qNeck).multiply(info.restQuat.Neck), 0.7);
+        mq['Neck'] = new THREE.Quaternion().slerpQuaternions(info.restQuat.Neck, _gq3.copy(qNeck).multiply(info.restQuat.Neck), 0.7 + 0.3 * straightT);
         var headTiltNow = (flip ? 1 : -1) * (C.j.headTilt || 0);
         // inclinação canônica da cabeça (positiva = rosto para cima/
         // para trás): -headTilt do quadro, mais o chicote do tiro
@@ -2980,7 +3041,7 @@
         // perna da frente (o pé cai na bota amostrada, com o tornozelo um pouco acima do chão)
         var frontLeg = solveLimb('UpperLeg' + gunSide, 'LowerLeg' + gunSide, 'Foot' + gunSide,
           _s.copy(mp2['UpperLeg' + gunSide]),
-          glbToModel(rig, innerPos, J.bootF, _t).add(_gv4.set(0, info.ankleH, 0)),
+          glbToModel(rig, innerPos, J.bootF, _t).add(_gv4.set(0, 0, 0)),
           glbToModel(rig, innerPos, J.kneeF, _p));
         mq['UpperLeg' + gunSide] = frontLeg.q1.clone().multiply(info.restQuat['UpperLeg' + gunSide]);
         mq['LowerLeg' + gunSide] = frontLeg.q2.clone().multiply(info.restQuat['LowerLeg' + gunSide]);
@@ -2988,7 +3049,7 @@
         // perna de trás
         var backLeg = solveLimb('UpperLeg' + supSide, 'LowerLeg' + supSide, 'Foot' + supSide,
           _s.copy(mp2['UpperLeg' + supSide]),
-          glbToModel(rig, innerPos, J.bootB, _t).add(_gv4.set(0, info.ankleH, 0)),
+          glbToModel(rig, innerPos, J.bootB, _t).add(_gv4.set(0, 0, 0)),
           glbToModel(rig, innerPos, J.kneeB, _p));
         mq['UpperLeg' + supSide] = backLeg.q1.clone().multiply(info.restQuat['UpperLeg' + supSide]);
         mq['LowerLeg' + supSide] = backLeg.q2.clone().multiply(info.restQuat['LowerLeg' + supSide]);
@@ -3064,8 +3125,11 @@
         P.drumSpin.rotation.x = C.extra.cylRot || 0;
         // violão nas costas, com balanço de mola
         if (P.guitarG){
-          springStep(SP.guitar, (flip ? 0.55 : -0.55) + (C.extra.walkSwing || 0) * 0.12 * Math.sin(now / 95 + 1), dt3, 55, 6.5);
-          P.guitarG.position.set(J.sho.x + (flip ? 0.34 : -0.34), J.sho.y - 0.42, 0.04);
+          // o pescoço do violão aponta para cima e para trás (o sinal
+          // estava invertido: apontava para frente, por cima do ombro,
+          // e sumia atrás da cabeça - só sobrava o corpo redondo, um disco)
+          springStep(SP.guitar, (flip ? -0.65 : 0.65) + (C.extra.walkSwing || 0) * 0.12 * Math.sin(now / 95 + 1), dt3, 55, 6.5);
+          P.guitarG.position.set(J.sho.x + (flip ? 0.30 : -0.30), Math.max(0.12, J.sho.y - 0.30), -0.10);
           P.guitarG.rotation.z = SP.guitar.x;
         }
         // poça de sangue quando caído ou morto
