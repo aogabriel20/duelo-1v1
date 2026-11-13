@@ -386,8 +386,13 @@
       </section>
     </main>
 
-    <script src="three.min.js"></script>
-    <script>
+    <script type="importmap">
+    { "imports": { "three": "./three.module.js", "three/addons/": "./addons/" } }
+    </script>
+    <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
     (function(){
       "use strict";
       /* ============================================================
@@ -400,9 +405,13 @@
          com AES-GCM usando o próprio código de 4 letras como chave.
          A partida roda em WebRTC direto entre os dois navegadores e
          quem cria a sala é o anfitrião, a autoridade da partida.
-         Gráficos 3D em tempo real com Three.js (three.min.js,
-         embutido no repositório); se o WebGL falhar, o jogo avisa
-         e continua na versão 2D que já existia.
+         Gráficos 3D em tempo real com Three.js (three.module.js,
+         embutido no repositório, sem CDN); os bonecos são modelos
+         humanos de verdade em GLB (billy.gltf e buster.gltf), com
+         licença livre (CC0, Quaternius, via Poly Pizza). Se o
+         WebGL falhar, o jogo avisa e continua na versão 2D que já
+         existia; se um GLB não carregar, o boneco procedural
+         antigo desenha no lugar.
          ============================================================ */
       var W = 960, H = 540, GROUND = 392;
       var X_YOU = 150, X_OPP = 810;
@@ -1831,12 +1840,17 @@
         ctx.beginPath(); ctx.moveTo(x - 10, y - 4); ctx.lineTo(x + 12, y - 6); ctx.stroke();
       }
       /* ============================================================
-         RENDER 3D EM TEMPO REAL — Three.js (three.min.js, embutido
-         no repositório; nada de CDN). Os bonecos são modelos 3D de
-         verdade, montados por um rig articulado: cada junta do
-         amostrador quadro a quadro (sampleFig — as mesmas 9
-         sequências, mesmos tempos) vira uma articulação do modelo,
-         com luz e sombra reais do sol do sertão.
+         RENDER 3D EM TEMPO REAL — Three.js (three.module.js +
+         GLTFLoader, embutidos no repositório; nada de CDN). Os
+         bonecos são MODELOS 3D HUMANOS DE VERDADE (GLB, licença
+         livre — CC0, Quaternius): o Fazendeiro é o Billy Poeira e o
+         Aventureiro é o Buster Scruggs. Cada junta do amostrador
+         quadro a quadro (sampleFig — as mesmas 9 sequências, mesmos
+         tempos) vira uma articulação do modelo, com cinemática
+         inversa de dois ossos nos braços e nas pernas, com luz e
+         sombra reais do sol do sertão. Enquanto os GLBs carregam (ou
+         se o carregamento falhar), os rigs procedurais antigos
+         continuam desenhando — o jogo nunca fica sem boneco.
          A câmera é nivelada (y = 1,525, z = 8,8, fov 42°): a
          projeção 3D casa pixel a pixel com o palco 2D (chão em
          y=392, cabeça em y=180), então traçadores, sangue, poeira,
@@ -1844,7 +1858,7 @@
          cima — ficam alinhados com o boneco 3D. Se o WebGL falhar,
          o jogo avisa e continua no 2D (nunca tela preta).
          ============================================================ */
-      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0, bursts:[], burstLast:0 };
+      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0, bursts:[], burstLast:0, glbCache:{}, glbInfo:{}, useGLB:false, glbFailed:false };
       var S3 = 1 / 80; // 1 unidade de mundo = 80 px do palco 2D
       function wX3(px){ return (px - 480) * S3; }
       function wY3(py, hh){ return (GROUND - py) * (hh || 1) * S3; }
@@ -2426,12 +2440,481 @@
         GL.scene.add(group);
         return { group: group, parts: P, charId: colors.id, flip: flip };
       }
+      /* ============================================================
+         MODELOS 3D HUMANOS DE VERDADE (GLB)
+         Os bonecos montados por pedaços batiam no teto e pareciam
+         manequins. Agora os dois são modelos humanos feitos por
+         artistas 3D, com licença livre, carregados como GLB:
+           Billy Poeira   = "Farmer", Quaternius, CC0 1.0
+                            (Ultimate Animated Character Pack),
+                            via Poly Pizza — poly.pizza/m/7pn3R6hPvE
+           Buster Scruggs = "Adventurer", Quaternius, CC0 1.0,
+                            via Poly Pizza — poly.pizza/m/5EGWBMpuXq
+         Os dois têm o mesmo esqueleto (62 ossos, com dedos) e 24
+         animações próprias — que o jogo NÃO usa: as poses continuam
+         vindo do amostrador quadro a quadro (sampleFig), para a
+         mecânica, o tempo e a reação ao tiro ficarem idênticos.
+         O amostrador continua sendo a fonte da pose: as juntas
+         amostradas dirigem os ossos dos modelos, com cinemática
+         inversa de dois ossos nos braços e nas pernas (a mão e o pé
+         caem exatamente onde o jogo espera, mesmo com os membros do
+         modelo mais compridos que os do desenho), então as 9
+         sequências, a reação ao tiro por região, o agachar e o pular
+         funcionam iguais — só o corpo que é humano de verdade.
+         Enquanto os GLBs carregam (ou se o carregamento falhar), os
+         rigs procedurais antigos continuam desenhando; o jogo nunca
+         fica sem boneco. O Fazendeiro já traz o chapéu dele (de
+         palha, repintado de marrom); o Aventureiro não tem chapéu
+         e ganha o chapéu branco do jogo, e a mochila dele some para
+         o violão do Buster aparecer nas costas.
+         ============================================================ */
+      var GLB_MODEL_FILE = { billy:'billy.gltf', buster:'buster.gltf' };
+      // cores de cada personagem, aplicadas sobre os materiais do
+      // modelo (o modelo traz só o nome do material; a identidade
+      // vem daqui). Materiais fora da lista ficam como o artista fez
+      // (olhos escuros e boca vermelha do Fazendeiro, por exemplo).
+      var GLB_COLORS = {
+        billy:  { Skin:'#e2ac74', Eyebrows:'#4a2f1d', Brown:'#c1271d', LightBlue:'#2a4a8a', Brown2:'#5a3a1e', Beige:'#8a6224' },
+        buster: { Skin:'#e8b98a', Eyebrows:'#d9b45c', Hair:'#d9b45c', Green:'#f5f2e8', LightGreen:'#ffffff', Brown:'#f5f2e8', Brown2:'#f5f2e8', Black:'#141216', Grey:'#f5f2e8' }
+      };
+      // materiais que somem no modelo (a mochila do Aventureiro: o
+      // violão do Buster vai no lugar dela)
+      var GLB_HIDE = { billy: [], buster: ['Gold'] };
+      // cadeia do esqueleto (os dois modelos têm o mesmo): o próximo
+      // osso de cada um, para medir a direção de repouso
+      var GLB_NEXT = { Body:'Hips', Hips:'Abdomen', Abdomen:'Torso', Torso:'Chest', Chest:'Neck', Neck:'Head', Head:'Head', ShoulderL:'UpperArmL', ShoulderR:'UpperArmR', UpperArmL:'LowerArmL', UpperArmR:'LowerArmR', LowerArmL:'WristL', LowerArmR:'WristR', WristL:'WristL', WristR:'WristR', UpperLegL:'LowerLegL', UpperLegR:'LowerLegR', LowerLegL:'FootL', LowerLegR:'FootR', FootL:'FootL', FootR:'FootR' };
+      // quanto da inclinação da coluna cada osso da coluna assume
+      var GLB_SPINE_W = { Body:0.2, Hips:0.4, Abdomen:0.6, Torso:0.8, Chest:1.0 };
+      // ossos que o jogo dirige (os dedos ficam na pose de repouso,
+      // que já é uma mão relaxada)
+      var GLB_DRIVEN = ['Body','Hips','Abdomen','Torso','Chest','Neck','Head','ShoulderL','ShoulderR','UpperArmL','UpperArmR','LowerArmL','LowerArmR','WristL','WristR','UpperLegL','UpperLegR','LowerLegL','LowerLegR','FootL','FootR'];
+      // ordem de cima para baixo (pai antes do filho), para calcular
+      // as posições dos ossos e escrever os quaternions locais
+      var GLB_ORDER = ['Root','Body','Hips','Abdomen','Torso','Chest','Neck','Head','ShoulderL','UpperArmL','LowerArmL','WristL','ShoulderR','UpperArmR','LowerArmR','WristR','UpperLegL','LowerLegL','FootL','UpperLegR','LowerLegR','FootR'];
+      var _gv1 = new THREE.Vector3(), _gv2 = new THREE.Vector3(), _gv3 = new THREE.Vector3(), _gv4 = new THREE.Vector3();
+      var _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gq3 = new THREE.Quaternion(), _gq4 = new THREE.Quaternion(), _gq5 = new THREE.Quaternion();
+      // o esqueleto do modelo não é anatômico: a coxa é filha do corpo
+      // (não do quadril) e o pé é filho da raiz (não da canela) — sem
+      // isso a perna não acompanha a IK e o pé fica preso no lugar.
+      // Re-parenteia preservando a pose de repouso (attach mantém a
+      // matriz de mundo), para a hierarquia virar anatômica. Faz isso
+      // no modelo em cache, uma vez, antes de medir as juntas — todos
+      // os clones herdam a hierarquia corrigida.
+      function glbFixHierarchy(scene){
+        scene.updateMatrixWorld(true);
+        var bones = {};
+        scene.traverse(function(o){ if (o.isBone) bones[o.name] = o; });
+        function reparent(child, parent){
+          if (bones[child] && bones[parent] && bones[child].parent !== bones[parent]){
+            bones[parent].attach(bones[child]);
+          }
+        }
+        reparent('UpperLegL', 'Hips');
+        reparent('UpperLegR', 'Hips');
+        reparent('FootL', 'LowerLegL');
+        reparent('FootR', 'LowerLegR');
+        scene.updateMatrixWorld(true);
+      }
+      function loadGLBModels(){
+        if (typeof fetch !== 'function' || typeof GLTFLoader === 'undefined') return;
+        var loader = new GLTFLoader();
+        ['billy','buster'].forEach(function(id){
+          fetch(GLB_MODEL_FILE[id]).then(function(r){
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.arrayBuffer();
+          }).then(function(buf){
+            loader.parse(buf, '', function(gltf){
+              glbFixHierarchy(gltf.scene);
+              GL.glbCache[id] = gltf;
+              var info = glbModelInfo(gltf);
+              GL.glbInfo[id] = info;
+              // alonga a coluna no modelo em si (não só no cálculo):
+              // sem isso os ossos continuam com a posição original, a
+              // cabeça não sobe e o punho analítico não bate com o
+              // punho de verdade (o revólver ficaria longe da mão)
+              gltf.scene.traverse(function(o){
+                if (o.isBone && info.restLocal[o.name]) o.position.copy(info.restLocal[o.name]);
+              });
+              gltf.scene.updateMatrixWorld(true);
+              if (GL.glbCache.billy && GL.glbCache.buster) GL.useGLB = true;
+            }, function(){ GL.glbFailed = true; });
+          }).catch(function(){ GL.glbFailed = true; });
+        });
+      }
+      // informação do modelo em espaço local (antes de qualquer
+      // rotação): direção e orientação de repouso de cada osso, para
+      // onde o rosto aponta, escala e altura do tornozelo — tudo
+      // medido no modelo carregado, não chutado
+      function glbModelInfo(gltf){
+        var scene = gltf.scene;
+        scene.updateMatrixWorld(true);
+        var bones = {};
+        scene.traverse(function(o){ if (o.isBone) bones[o.name] = o; });
+        var info = { bones: bones, restDir: {}, restQuat: {}, restPos: {}, restLocal: {}, parent: {}, fwd: new THREE.Vector3(0, 0, 1), scale: 1, ankleH: 0.02, unitK: 1, hatLift: 0.22 };
+        var names = Object.keys(bones);
+        var _v1 = new THREE.Quaternion(), _v2 = new THREE.Vector3();
+        names.forEach(function(n){
+          var b = bones[n];
+          b.getWorldQuaternion(_v1); info.restQuat[n] = _v1.clone();
+          b.getWorldPosition(_v2); info.restPos[n] = _v2.clone();
+          info.restLocal[n] = b.position.clone();
+          info.parent[n] = (b.parent && b.parent.isBone) ? b.parent.name : null;
+        });
+        // escala de unidade do modelo (a posição local pode estar em
+        // metros ou em centímetros): mede no osso do corpo
+        var body = bones.Body;
+        if (body && info.parent.Body && info.restPos[info.parent.Body]){
+          var dWorld = new THREE.Vector3().subVectors(info.restPos.Body, info.restPos[info.parent.Body]).length();
+          var dLocal = body.position.length();
+          if (dLocal > 1e-6 && dWorld > 1e-6) info.unitK = dWorld / dLocal;
+        }
+        names.forEach(function(n){
+          var nx = GLB_NEXT[n];
+          if (nx && bones[nx] && nx !== n){
+            var d = new THREE.Vector3().subVectors(info.restPos[nx], info.restPos[n]);
+            if (d.lengthSq() > 1e-8) info.restDir[n] = d.normalize();
+          }
+          if (!info.restDir[n]) info.restDir[n] = new THREE.Vector3(0, 1, 0);
+        });
+        // para onde o rosto aponta: do osso da cabeça para os olhos
+        var eyeCenters = [];
+        scene.traverse(function(o){
+          if (o.isMesh && o.material && o.material.name === 'Eye'){
+            var g = o.geometry;
+            if (g){
+              if (!g.boundingBox) g.computeBoundingBox();
+              if (g.boundingBox){
+                var c = new THREE.Vector3(); g.boundingBox.getCenter(c);
+                c.applyMatrix4(o.matrixWorld);
+                eyeCenters.push(c);
+              }
+            }
+          }
+        });
+        if (eyeCenters.length && bones.Head){
+          var ec = new THREE.Vector3();
+          eyeCenters.forEach(function(c){ ec.add(c); });
+          ec.multiplyScalar(1 / eyeCenters.length);
+          var hp = info.restPos.Head;
+          var d = new THREE.Vector3(ec.x - hp.x, 0, ec.z - hp.z);
+          if (d.lengthSq() > 0.0025) info.fwd = d.normalize();
+        }
+        if (bones.Head) info.scale = ((GROUND - 180) * S3) / info.restPos.Head.y;
+        // o torso do modelo (proporção humana de verdade) é mais curto
+        // que o do desenho 2D: quadril-cabeça 0,69 m no modelo contra
+        // 122 px (1,53 unidades) no desenho em pé. Sem alongar a
+        // coluna, a cabeça cai ~27 px abaixo da faixa da cabeça e o
+        // tiro na cabeça vira tiro no tronco. Alongar só a coluna (as
+        // pernas seguem a IK até as botas) alinha a cabeça com a faixa
+        // de acerto — e o boneco fica com o torso comprido do desenho
+        // original, que é o visual do jogo. Alongar um vetor não muda
+        // a direção dele, então as direções de repouso continuam válidas.
+        var hipToHeadM = (bones.Head && bones.Hips) ? (info.restPos.Head.y - info.restPos.Hips.y) : 0;
+        var hipToHeadU = (302 - 180) * S3; // quadril-cabeça do desenho em pé
+        info.torsoStretch = hipToHeadM > 0 ? hipToHeadU / (hipToHeadM * info.scale) : 1;
+        ['Hips','Abdomen','Torso','Chest','Neck','Head'].forEach(function(n){
+          if (info.restLocal[n]) info.restLocal[n].multiplyScalar(info.torsoStretch);
+        });
+        if (bones.FootL) info.ankleH = Math.max(0, info.restPos.FootL.y);
+        return info;
+      }
+      // chapéu do jogo (o do Buster): copa com vinco, aba com borda
+      // enrolada e faixa — igual ao do rig procedural
+      function makeHat3D(colors, fwd){
+        var hatG = new THREE.Group();
+        var crown = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.155, 0.22, 14), mat3(colors.hat, .85, 0, 'leather'));
+        crown.position.y = 0.11; crown.castShadow = true; hatG.add(crown);
+        var dent = sph3(0.05, mat3(colors.hatDark, .9, 0, 'leather')); dent.scale.set(1.6, 0.4, 1.2); dent.position.set(0, 0.225, -0.02); dent.castShadow = false; dent.userData.noShadow = true; hatG.add(dent);
+        var brim = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.025, 20), mat3(colors.hat, .85, 0, 'leather'));
+        brim.castShadow = true; hatG.add(brim);
+        var brimEdge = new THREE.Mesh(new THREE.TorusGeometry(0.295, 0.014, 8, 24), mat3(colors.hatDark, .9, 0, 'leather'));
+        brimEdge.rotation.x = Math.PI / 2; brimEdge.position.y = 0.005; brimEdge.castShadow = false; brimEdge.userData.noShadow = true; hatG.add(brimEdge);
+        var brimShade = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.008, 20), mat3('#3a2a18', .9, 0));
+        brimShade.position.y = -0.017; brimShade.castShadow = false; brimShade.userData.noShadow = true; hatG.add(brimShade);
+        var hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 14), mat3(colors.band, .85, 0, 'cloth'));
+        hatBand.position.y = 0.03; hatG.add(hatBand);
+        hatG.rotation.z = -fwd * 0.04;
+        return hatG;
+      }
+      // violão do Buster: corpo em 8, tampo claro, boca, cavalete, braço e cabeça
+      function makeGuitar3D(){
+        var guitarG = new THREE.Group();
+        var gLow = sph3(0.20, mat3('#5d3817', .8, 0, 'leather')); gLow.scale.set(1, 1.1, 0.30); guitarG.add(gLow);
+        var gUp = sph3(0.15, mat3('#5d3817', .8, 0, 'leather')); gUp.scale.set(1, 1.05, 0.30); gUp.position.set(0, 0.17, 0); guitarG.add(gUp);
+        var gTop = sph3(0.185, mat3('#a8763e', .75, 0)); gTop.scale.set(1, 1.1, 0.30); gTop.position.set(0, 0, 0.02); guitarG.add(gTop);
+        var gTop2 = sph3(0.135, mat3('#a8763e', .75, 0)); gTop2.scale.set(1, 1.05, 0.30); gTop2.position.set(0, 0.17, 0.02); guitarG.add(gTop2);
+        var hole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 14), mat3('#2a1a0c', .9, 0));
+        hole.position.set(0, 0.02, 0.085); guitarG.add(hole);
+        var bridge = box3(0.12, 0.03, 0.02, mat3('#3a2410', .8, 0)); bridge.position.set(0, -0.09, 0.085); guitarG.add(bridge);
+        var gneck = box3(0.05, 0.36, 0.04, mat3('#6e4525', .8, 0, 'leather')); gneck.position.set(0, 0.36, 0); guitarG.add(gneck);
+        var ghead = box3(0.07, 0.06, 0.04, mat3('#3a2410', .8, 0)); ghead.position.set(0, 0.55, 0); guitarG.add(ghead);
+        return guitarG;
+      }
+      // revólver do jogo: cano, tambor que gira, armação, cabo e martelo
+      function makeRevolver3D(){
+        var gunG = new THREE.Group();
+        var steel = mat3('#aeb4bf', .32, .85, 'metal'), steelD = mat3('#596069', .4, .8, 'metal');
+        var barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.36, 10), steel);
+        barrel.rotation.z = -Math.PI / 2; barrel.position.set(0.14, 0, 0); barrel.castShadow = true; gunG.add(barrel);
+        var frame = box3(0.12, 0.10, 0.06, steelD); gunG.add(frame);
+        var drumSpin = new THREE.Group(); drumSpin.position.set(0.02, 0, 0); gunG.add(drumSpin);
+        var drum = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.12, 12), steel);
+        drum.rotation.z = -Math.PI / 2; drum.castShadow = true; drumSpin.add(drum);
+        var grip = box3(0.07, 0.17, 0.05, mat3('#6e4525', .8, 0, 'leather')); grip.position.set(-0.06, -0.09, 0); grip.rotation.z = 0.38; gunG.add(grip);
+        var hammerPivot = new THREE.Group(); hammerPivot.position.set(-0.075, 0.045, 0); gunG.add(hammerPivot);
+        var hammer = box3(0.03, 0.08, 0.03, steelD); hammer.position.set(0, 0.03, 0); hammerPivot.add(hammer);
+        var sight = box3(0.02, 0.03, 0.02, steelD); sight.position.set(0.30, 0.035, 0); gunG.add(sight);
+        return { group: gunG, drumSpin: drumSpin, hammerPivot: hammerPivot };
+      }
+      function buildGLBRig(colors, flip){
+        var src = GL.glbCache[colors.id];
+        var info = GL.glbInfo[colors.id];
+        var clone = cloneSkinned(src.scene);
+        var group = new THREE.Group();
+        var inner = new THREE.Group();
+        inner.add(clone);
+        group.add(inner);
+        var scheme = GLB_COLORS[colors.id] || {};
+        var hide = GLB_HIDE[colors.id] || [];
+        var mats = {};
+        clone.traverse(function(o){
+          if ((o.isMesh || o.isSkinnedMesh) && o.material){
+            var arr = Array.isArray(o.material) ? o.material : [o.material];
+            var hidden = false;
+            for (var hi = 0; hi < arr.length; hi++){
+              if (arr[hi] && hide.indexOf(arr[hi].name || '') >= 0) hidden = true;
+            }
+            if (hidden){ o.visible = false; return; }
+            var out = arr.map(function(m){
+              var nm = (m && m.name) || '';
+              if (!mats[nm]) mats[nm] = m.clone();
+              var mm = mats[nm];
+              if (scheme[nm]) mm.color.set(scheme[nm]);
+              mm.metalness = 0;
+              mm.roughness = nm === 'Skin' ? 0.62 : 0.88;
+              return mm;
+            });
+            o.material = Array.isArray(o.material) ? out : out[0];
+            o.castShadow = true;
+          }
+        });
+        var P = {};
+        var fwd = flip ? -1 : 1;
+        // o Fazendeiro já traz o chapéu dele; o Aventureiro não tem
+        // chapéu e ganha o chapéu branco do jogo
+        if (colors.id === 'buster'){ P.hatG = makeHat3D(colors, fwd); group.add(P.hatG); }
+        else P.hatG = null;
+        if (colors.guitar){ P.guitarG = makeGuitar3D(); group.add(P.guitarG); }
+        else P.guitarG = null;
+        var gun = makeRevolver3D();
+        P.gunG = gun.group; P.hammerPivot = gun.hammerPivot; P.drumSpin = gun.drumSpin;
+        group.add(P.gunG);
+        var blood = new THREE.Mesh(new THREE.CircleGeometry(0.55, 20), new THREE.MeshStandardMaterial({ color: '#b31e18', roughness: .6, metalness: 0, transparent: true, opacity: 0.75 }));
+        blood.rotation.x = -Math.PI / 2; blood.scale.set(1.5, 0.55, 1); blood.visible = false;
+        blood.receiveShadow = true;
+        GL.scene.add(blood); P.blood = blood;
+        // o modelo olha para o seu eixo F; o grupo interno gira esse
+        // eixo para a tela (para a direita de quem joga, ou para a
+        // esquerda no oponente)
+        var theta = Math.atan2(info.fwd.z, info.fwd.x) + (flip ? Math.PI : 0);
+        inner.rotation.y = theta;
+        inner.scale.setScalar(info.scale);
+        var innerQuat = inner.quaternion.clone();
+        var latAxis = new THREE.Vector3(0, 0, 1).applyQuaternion(innerQuat.clone().invert());
+        var rigBones = {};
+        clone.traverse(function(o){ if (o.isBone) rigBones[o.name] = o; });
+        group.traverse(function(o){ if (o.isMesh) o.castShadow = true; });
+        GL.scene.add(group);
+        return { group: group, inner: inner, parts: P, charId: colors.id, flip: flip, glb: true, info: info, bones: rigBones, innerQuat: innerQuat, innerQuatInv: innerQuat.clone().invert(), latAxis: latAxis };
+      }
+      // direção no espaço do modelo a partir de dois pontos amostrados
+      // (em unidades de mundo, no grupo): frente e cima canônicas
+      function glbDirFromJoints(info, flip, ax, ay, bx, by, out){
+        var dx = (flip ? -1 : 1) * (bx - ax), dy = by - ay;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        var f = dx / len, u = dy / len;
+        out.set(info.fwd.x * f, u, info.fwd.z * f);
+        return out;
+      }
+      // cinemática inversa de dois ossos: acha o cotovelo/joelho para a
+      // mão/o pé cair no alvo, com os comprimentos do modelo
+      function glbIK(S, T, L1, L2, P){
+        var axis = new THREE.Vector3().subVectors(T, S);
+        var d = axis.length();
+        var maxD = L1 + L2 - 0.001, minD = Math.abs(L1 - L2) + 0.001;
+        if (d > maxD) d = maxD;
+        if (d < minD) d = minD;
+        axis.normalize();
+        var cosA = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
+        if (cosA > 1) cosA = 1; if (cosA < -1) cosA = -1;
+        var sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+        var perp = new THREE.Vector3().subVectors(P, S);
+        perp.addScaledVector(axis, -perp.dot(axis));
+        if (perp.lengthSq() < 1e-8) perp.set(0, 0, 1);
+        perp.normalize();
+        var dir1 = axis.clone().multiplyScalar(cosA).addScaledVector(perp, sinA);
+        var E = S.clone().addScaledVector(dir1, L1);
+        var dir2 = new THREE.Vector3().subVectors(T, E).normalize();
+        return { elbow: E, dir1: dir1, dir2: dir2 };
+      }
+      // posições dos ossos no espaço do modelo, com os quaternions
+      // desejados (mq) já aplicados — de cima para baixo, pela cadeia
+      function glbComputePos(info, mq){
+        var pos = {};
+        pos['Root'] = info.restPos['Root'] ? info.restPos['Root'].clone() : new THREE.Vector3();
+        var _tv = new THREE.Vector3();
+        GLB_ORDER.forEach(function(n){
+          if (n === 'Root') return;
+          var parent = info.parent[n];
+          if (!parent || !pos[parent]){ pos[n] = info.restPos[n].clone(); return; }
+          var q = mq[parent] || info.restQuat[parent];
+          _tv.copy(info.restLocal[n]).multiplyScalar(info.unitK).applyQuaternion(q);
+          pos[n] = pos[parent].clone().add(_tv);
+        });
+        return pos;
+      }
+      // ponto em unidades de mundo (no grupo) -> espaço do modelo
+      function glbToModel(rig, innerPos, v, out){
+        out.set(v.x - innerPos.x, v.y - innerPos.y, (v.z || 0) - innerPos.z);
+        out.applyQuaternion(rig.innerQuatInv);
+        out.multiplyScalar(1 / rig.info.scale);
+        return out;
+      }
+      // ponto no espaço do modelo -> unidades de mundo (no grupo)
+      function glbToGroup(rig, innerPos, v, out){
+        out.copy(v).multiplyScalar(rig.info.scale).applyQuaternion(rig.innerQuat);
+        out.add(innerPos);
+        return out;
+      }
+      // dirige os ossos do modelo a partir das juntas amostradas
+      function driveGLBBones(rig, J, C){
+        var info = rig.info, flip = C.flip, fwd = C.fwd, SP = C.SP, dt3 = C.dt3, now = C.now;
+        var gunSide = flip ? 'L' : 'R';   // braço da arma: o do lado da câmera
+        var supSide = flip ? 'R' : 'L';   // braço de apoio: o do lado de trás
+        // --- coluna, pescoço e cabeça (direções amostradas) ---
+        var spineDir = glbDirFromJoints(info, flip, J.hip.x, J.hip.y, J.sho.x, J.sho.y, _gv1);
+        var qSpine = _gq1.setFromUnitVectors(info.restDir.Torso, spineDir);
+        var neckDir = glbDirFromJoints(info, flip, J.sho.x, J.sho.y, J.head.x, J.head.y, _gv2);
+        var qNeck = _gq2.setFromUnitVectors(info.restDir.Neck, neckDir);
+        var mq = {};
+        mq['Root'] = info.restQuat['Root'];
+        ['Body','Hips','Abdomen','Torso','Chest'].forEach(function(n){
+          mq[n] = new THREE.Quaternion().slerpQuaternions(info.restQuat[n], _gq3.copy(qSpine).multiply(info.restQuat[n]), GLB_SPINE_W[n]);
+        });
+        mq['Neck'] = new THREE.Quaternion().slerpQuaternions(info.restQuat.Neck, _gq3.copy(qNeck).multiply(info.restQuat.Neck), 0.7);
+        var headTiltNow = (flip ? 1 : -1) * (C.j.headTilt || 0);
+        // inclinação canônica da cabeça (positiva = rosto para cima/
+        // para trás): -headTilt do quadro, mais o chicote do tiro
+        var tiltAngle = -(C.j.headTilt || 0) + SP.headSnap.x * 0.22 + (C.extra.walkSwing || 0) * 0.05 * Math.sin(now / 95);
+        var qTilt = new THREE.Quaternion().setFromAxisAngle(rig.latAxis, tiltAngle);
+        mq['Head'] = qTilt.clone().multiply(qNeck).multiply(info.restQuat.Head);
+        // --- posição do grupo interno: o quadril do modelo cai sobre o quadril amostrado ---
+        var mp2 = glbComputePos(info, mq);
+        var innerPos = new THREE.Vector3(J.hip.x, J.hip.y, 0);
+        _gv3.copy(mp2.Hips).multiplyScalar(info.scale).applyQuaternion(rig.innerQuat);
+        innerPos.sub(_gv3);
+        rig.inner.position.copy(innerPos);
+        // --- braços e pernas: IK de dois ossos para a mão e o pé ---
+        function solveLimb(prox, mid, dist, S, T, P){
+          var L1 = new THREE.Vector3().subVectors(info.restPos[mid], info.restPos[prox]).length();
+          var L2 = new THREE.Vector3().subVectors(info.restPos[dist], info.restPos[mid]).length();
+          var ik = glbIK(S, T, L1, L2, P);
+          var q1 = new THREE.Quaternion().setFromUnitVectors(info.restDir[prox], ik.dir1);
+          var q2 = new THREE.Quaternion().setFromUnitVectors(info.restDir[mid], ik.dir2);
+          return { q1: q1, q2: q2, dir2: ik.dir2 };
+        }
+        var _t = new THREE.Vector3(), _p = new THREE.Vector3(), _s = new THREE.Vector3();
+        // braço da arma (mão no revólver)
+        var gunArm = solveLimb('UpperArm' + gunSide, 'LowerArm' + gunSide, 'Wrist' + gunSide,
+          _s.copy(mp2['UpperArm' + gunSide]),
+          glbToModel(rig, innerPos, J.gunH, _t),
+          glbToModel(rig, innerPos, J.gunE, _p));
+        mq['Shoulder' + gunSide] = new THREE.Quaternion().slerpQuaternions(info.restQuat['Shoulder' + gunSide], _gq3.copy(gunArm.q1).multiply(info.restQuat['Shoulder' + gunSide]), 0.4);
+        mq['UpperArm' + gunSide] = gunArm.q1.clone().multiply(info.restQuat['UpperArm' + gunSide]);
+        mq['LowerArm' + gunSide] = gunArm.q2.clone().multiply(info.restQuat['LowerArm' + gunSide]);
+        mq['Wrist' + gunSide] = gunArm.q2.clone().multiply(info.restQuat['Wrist' + gunSide]);
+        // braço de apoio
+        var supArm = solveLimb('UpperArm' + supSide, 'LowerArm' + supSide, 'Wrist' + supSide,
+          _s.copy(mp2['UpperArm' + supSide]),
+          glbToModel(rig, innerPos, J.handL, _t),
+          glbToModel(rig, innerPos, J.elbL, _p));
+        mq['Shoulder' + supSide] = new THREE.Quaternion().slerpQuaternions(info.restQuat['Shoulder' + supSide], _gq3.copy(supArm.q1).multiply(info.restQuat['Shoulder' + supSide]), 0.4);
+        mq['UpperArm' + supSide] = supArm.q1.clone().multiply(info.restQuat['UpperArm' + supSide]);
+        mq['LowerArm' + supSide] = supArm.q2.clone().multiply(info.restQuat['LowerArm' + supSide]);
+        mq['Wrist' + supSide] = supArm.q2.clone().multiply(info.restQuat['Wrist' + supSide]);
+        // perna da frente (o pé cai na bota amostrada, com o tornozelo um pouco acima do chão)
+        var frontLeg = solveLimb('UpperLeg' + gunSide, 'LowerLeg' + gunSide, 'Foot' + gunSide,
+          _s.copy(mp2['UpperLeg' + gunSide]),
+          glbToModel(rig, innerPos, J.bootF, _t).add(_gv4.set(0, info.ankleH, 0)),
+          glbToModel(rig, innerPos, J.kneeF, _p));
+        mq['UpperLeg' + gunSide] = frontLeg.q1.clone().multiply(info.restQuat['UpperLeg' + gunSide]);
+        mq['LowerLeg' + gunSide] = frontLeg.q2.clone().multiply(info.restQuat['LowerLeg' + gunSide]);
+        mq['Foot' + gunSide] = frontLeg.q2.clone().multiply(info.restQuat['Foot' + gunSide]);
+        // perna de trás
+        var backLeg = solveLimb('UpperLeg' + supSide, 'LowerLeg' + supSide, 'Foot' + supSide,
+          _s.copy(mp2['UpperLeg' + supSide]),
+          glbToModel(rig, innerPos, J.bootB, _t).add(_gv4.set(0, info.ankleH, 0)),
+          glbToModel(rig, innerPos, J.kneeB, _p));
+        mq['UpperLeg' + supSide] = backLeg.q1.clone().multiply(info.restQuat['UpperLeg' + supSide]);
+        mq['LowerLeg' + supSide] = backLeg.q2.clone().multiply(info.restQuat['LowerLeg' + supSide]);
+        mq['Foot' + supSide] = backLeg.q2.clone().multiply(info.restQuat['Foot' + supSide]);
+        // --- escreve os quaternions locais (pai antes do filho) ---
+        GLB_DRIVEN.forEach(function(n){
+          var b = rig.bones[n];
+          if (!b) return;
+          var pn = info.parent[n];
+          var pq = (pn && mq[pn]) ? mq[pn] : (pn && info.restQuat[pn]) ? info.restQuat[pn] : _gq5.identity();
+          var bq = mq[n] || info.restQuat[n];
+          _gq4.copy(pq).invert().multiply(bq);
+          b.quaternion.copy(_gq4);
+        });
+        // --- posições finais (para o chapéu, o revólver e o violão) ---
+        var mp2b = glbComputePos(info, mq);
+        var P = rig.parts;
+        // chapéu do Buster sobre a cabeça do modelo (o do Billy é o do próprio modelo)
+        if (P.hatG){
+          springStep(SP.hat, headTiltNow, dt3, 90, 8);
+          rig.hatSmooth = SP.hat.x;
+          var headG = glbToGroup(rig, innerPos, mp2b.Head, _gv3);
+          P.hatG.visible = !C.hatOff;
+          P.hatG.position.set(headG.x, headG.y + info.hatLift * info.scale, headG.z);
+          P.hatG.rotation.z = -fwd * 0.04 + (SP.hat.x - headTiltNow);
+        }
+        // revólver na mão da arma: o cabo passa dentro da palma
+        var wristG = glbToGroup(rig, innerPos, mp2b['Wrist' + gunSide], _gv3);
+        var foreDir = _gv4.copy(gunArm.dir2).applyQuaternion(rig.innerQuat);
+        var gAng = Math.atan2(foreDir.y, foreDir.x);
+        var rk = SP.recoil.x * 0.06 + SP.armSwing.x * 0.08;
+        var co = Math.cos(gAng), si = Math.sin(gAng);
+        var gripWx = -0.06 * co + 0.09 * si, gripWy = -0.06 * si - 0.09 * co;
+        P.gunG.position.set(wristG.x - gripWx, wristG.y - gripWy, wristG.z + 0.05);
+        P.gunG.rotation.z = gAng + (flip ? -rk : rk);
+        P.hammerPivot.rotation.z = -0.5 - (C.extra.hammerP || 0) * 0.55;
+        P.drumSpin.rotation.x = C.extra.cylRot || 0;
+        // violão nas costas, com balanço de mola
+        if (P.guitarG){
+          springStep(SP.guitar, (flip ? 0.55 : -0.55) + (C.extra.walkSwing || 0) * 0.12 * Math.sin(now / 95 + 1), dt3, 55, 6.5);
+          P.guitarG.position.set(J.sho.x + (flip ? 0.34 : -0.34), J.sho.y - 0.42, 0.04);
+          P.guitarG.rotation.z = SP.guitar.x;
+        }
+        // poça de sangue quando caído ou morto
+        var fallen = C.poseNow === 'fallen';
+        var dead = (C.side === 'you' ? G.hpYou : G.hpOpp) <= 0;
+        P.blood.visible = fallen || dead;
+        P.blood.position.set(wX3(C.cx), 0.015, 0.15);
+        // poeira 3D quando o corpo bate no chão (uma vez por queda)
+        if (C.poseNow === 'fallen'){
+          var ft = now - (C.poseAtNow || now);
+          if (ft >= 560 && ft < 640 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
+        } else rig.fallBurstDone = false;
+      }
       function updateFig3D(side, cx, flip, colors, angle, now, seed, hatOff, extra){
         if (!GL.ok) return;
         var rig = GL.rigs[side];
-        if (!rig || rig.charId !== colors.id){
+        var wantGLB = GL.useGLB && !!GL.glbCache[colors.id];
+        if (!rig || rig.charId !== colors.id || (wantGLB && !rig.glb) || (!wantGLB && rig.glb)){
           if (rig){ GL.scene.remove(rig.group); if (rig.parts.blood) GL.scene.remove(rig.parts.blood); }
-          rig = GL.rigs[side] = buildFigRig(colors, flip);
+          rig = GL.rigs[side] = wantGLB ? buildGLBRig(colors, flip) : buildFigRig(colors, flip);
         }
         var fwd = flip ? -1 : 1;
         var S = colors.id === 'buster' ? U_SET : B_SET;
@@ -2530,15 +3013,6 @@
         springStep(SP.recoil, 0, dt3, 160, 12);
         gunH.x -= fwd * SP.recoil.x * 0.12; gunH.y += SP.recoil.x * 0.04;
         gunH.z += SP.armSwing.x * 0.06; // braço atingido: a arma balança para o lado
-        // --- pernas: coxa e panturrilha com barriga de músculo, joelho, bota ---
-        setLimb3(P.legB1, hip, kneeB, 0.10); setLimb3(P.legB2, kneeB, bootB, 0.085);
-        setLimb3(P.legF1, hip, kneeF, 0.105); setLimb3(P.legF2, kneeF, bootF, 0.09);
-        setBall3(P.thighB, hip, kneeB, 0.115, 0.5); setBall3(P.thighF, hip, kneeF, 0.12, 0.5);
-        setBall3(P.calfB, kneeB, bootB, 0.10, 0.45); setBall3(P.calfF, kneeF, bootF, 0.105, 0.45);
-        // a perna atingida cede primeiro: no começo da queda, o joelho da frente
-        // afunda e o corpo tomba para o lado da perna — não é uma queda genérica.
-        // Vale também quando o tiro na perna mata: a queda de morte (DEATH_GROUND)
-        // começa com a perna cedendo, não com um tombo reto.
         var fpRaw = currentFallP(side, now);
         var buckle = 0;
         // queda comum: progresso da queda (pose 'fallen'); queda de morte por
@@ -2551,6 +3025,23 @@
           buckle = Math.sin(buckP / 0.4 * Math.PI);
           kneeF.y -= buckle * 0.12; bootF.y -= buckle * 0.06;
         }
+        if (rig.glb){
+          // boneco humano de verdade: os ossos do modelo seguem as
+          // juntas amostradas; o resto da função (pernas, braços,
+          // tronco e cabeça do rig procedural) não se aplica aqui
+          g.rotation.z = Math.sin(wph) * 0.015 * wsw + fwd * 0.05 * buckle;
+          driveGLBBones(rig, { hip:hip, sho:sho, head:head, kneeF:kneeF, bootF:bootF, kneeB:kneeB, bootB:bootB, elbL:elbL, handL:handL, gunE:gunE, gunH:gunH }, { flip:flip, hh:hh, now:now, fwd:fwd, SP:SP, dt3:dt3, br:br, j:j, extra:extra, side:side, cx:cx, hatOff:hatOff, smp:smp, fold:fold, poseNow:poseNow, poseAtNow:poseAtNow, wsw:wsw, wph:wph });
+          return;
+        }
+        // --- pernas: coxa e panturrilha com barriga de músculo, joelho, bota ---
+        setLimb3(P.legB1, hip, kneeB, 0.10); setLimb3(P.legB2, kneeB, bootB, 0.085);
+        setLimb3(P.legF1, hip, kneeF, 0.105); setLimb3(P.legF2, kneeF, bootF, 0.09);
+        setBall3(P.thighB, hip, kneeB, 0.115, 0.5); setBall3(P.thighF, hip, kneeF, 0.12, 0.5);
+        setBall3(P.calfB, kneeB, bootB, 0.10, 0.45); setBall3(P.calfF, kneeF, bootF, 0.105, 0.45);
+        // a perna atingida cede primeiro: no começo da queda, o joelho da frente
+        // afunda e o corpo tomba para o lado da perna — não é uma queda genérica.
+        // Vale também quando o tiro na perna mata: a queda de morte (DEATH_GROUND)
+        // começa com a perna cedendo, não com um tombo reto.
         P.kneeF.position.set(kneeF.x, kneeF.y, 0.02); P.kneeB.position.set(kneeB.x, kneeB.y, -0.02);
         // rotação do grupo: balanço do andar + tombo para o lado da perna atingida
         g.rotation.z = Math.sin(wph) * 0.015 * wsw + fwd * 0.05 * buckle;
@@ -2772,6 +3263,7 @@
           _va = new THREE.Vector3(); _vb = new THREE.Vector3(); _vd = new THREE.Vector3();
           buildEnvironment3(scene);
           GL.ok = true;
+          loadGLBModels();
         } catch (e){
           fail('O 3D não abriu neste navegador — o jogo continua na versão 2D.');
         }
