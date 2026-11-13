@@ -2491,6 +2491,16 @@
       // ordem de cima para baixo (pai antes do filho), para calcular
       // as posições dos ossos e escrever os quaternions locais
       var GLB_ORDER = ['Root','Body','Hips','Abdomen','Torso','Chest','Neck','Head','ShoulderL','UpperArmL','LowerArmL','WristL','ShoulderR','UpperArmR','LowerArmR','WristR','UpperLegL','LowerLegL','FootL','UpperLegR','LowerLegR','FootR'];
+      // correção de pernas juntas no parado: a pose de repouso do
+      // modelo deixa os pés escalonados (um à frente, um atrás, 0,41 m
+      // de distância). Estes deltas (quaternions locais, medidos no
+      // modelo real com as pernas já encurtadas, pelo solver em
+      // /tmp/harness-clips/close-legs.mjs) fecham as pernas para
+      // 0,125 m sem levantar o pé do chão — a rotação da coxa fecha a
+      // perna e a do pé devolve a sola ao chão. Válido para os dois
+      // modelos (mesmo esqueleto).
+      var GLB_CLOSE_UL = { L: new THREE.Quaternion(0.0690, -0.0015, 0.0214, 0.9974), R: new THREE.Quaternion(0.0080, -0.0006, 0.1595, 0.9872) };
+      var GLB_CLOSE_F = { L: new THREE.Quaternion(0.0126, 0.0699, -0.0131, 0.9974), R: new THREE.Quaternion(-0.1594, -0.0073, 0.0057, 0.9872) };
       var _gv1 = new THREE.Vector3(), _gv2 = new THREE.Vector3(), _gv3 = new THREE.Vector3(), _gv4 = new THREE.Vector3();
       var _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gq3 = new THREE.Quaternion(), _gq4 = new THREE.Quaternion(), _gq5 = new THREE.Quaternion();
       // o esqueleto do modelo não é anatômico: a coxa é filha do corpo
@@ -2525,6 +2535,35 @@
           }).then(function(buf){
             loader.parse(buf, '', function(gltf){
               glbFixHierarchy(gltf.scene);
+              // as pernas do modelo são mais compridas que as do desenho 2D
+              // (quadril 1,44 unidades acima do pé, contra 1,04 no desenho):
+              // com as pernas dirigidas pelo clip, o pé ficava ~0,4 abaixo
+              // do chão — o amostrador escondia isso colocando o pé no chão
+              // por IK. Encurta só as pernas (coxa, panturrilha, pé e dedos)
+              // para o quadril cair na altura do desenho; o torso comprido
+              // do desenho continua sendo alongado em glbModelInfo. Mede no
+              // modelo carregado, não chuta.
+              try {
+                var chH = 1, ci;
+                for (ci = 0; ci < CHARACTERS.length; ci++){ if (CHARACTERS[ci].id === id) chH = CHARACTERS[ci].h || 1; }
+                gltf.scene.updateMatrixWorld(true);
+                var legBones = {};
+                gltf.scene.traverse(function(o){ if (o.isBone) legBones[o.name] = o; });
+                if (legBones.Hips && legBones.FootL && legBones.Head){
+                  var _lv = new THREE.Vector3();
+                  var hipY = legBones.Hips.getWorldPosition(_lv).y;
+                  var footY = legBones.FootL.getWorldPosition(_lv).y;
+                  var headY = legBones.Head.getWorldPosition(_lv).y;
+                  var scaleM = headY > 0 ? ((GROUND - 180) * S3) / headY : 1;
+                  var legScale = ((385 - 302) * chH * S3) / ((hipY - footY) * scaleM);
+                  if (legScale > 0.5 && legScale < 1){
+                    ['UpperLegL','UpperLegR','LowerLegL','LowerLegR','FootL','FootR','PTL','PTR'].forEach(function(n){
+                      var b = legBones[n]; if (b) b.position.multiplyScalar(legScale);
+                    });
+                    gltf.scene.updateMatrixWorld(true);
+                  }
+                }
+              } catch (e){ /* sem encurtar, o jogo segue com as pernas do modelo */ }
               GL.glbCache[id] = gltf;
               var info = glbModelInfo(gltf);
               GL.glbInfo[id] = info;
@@ -2670,6 +2709,36 @@
         var src = GL.glbCache[colors.id];
         var info = GL.glbInfo[colors.id];
         var clone = cloneSkinned(src.scene);
+        // animações próprias do modelo: o .gltf já traz 24 clips
+        // feitos para esse corpo. O mixer escreve a pose base e o
+        // jogo só corrige por cima o que a mecânica exige (mira, tiro,
+        // queda). Sem isso o boneco fica com a pose do amostrador 2D,
+        // que entorta o modelo (pernas abertas, braço esticado).
+        var mixer = new THREE.AnimationMixer(clone);
+        var clipActions = {};
+        (src.animations || []).forEach(function(clip){
+          var kind = null, nm = clip.name || '';
+          if (/(^|\|)Idle_Gun$/.test(nm) || nm.indexOf('idle_breathe') >= 0 || nm.indexOf('idle_neutral') >= 0) kind = 'idle';
+          else if (/Walk/i.test(nm)) kind = 'walk';
+          else if (/Wave|Cheer/i.test(nm)) kind = 'wave';
+          if (!kind || clipActions[kind]) return;
+          var tracks = clip.tracks.filter(function(tr){
+            var dot = tr.name.lastIndexOf('.');
+            var node = dot >= 0 ? tr.name.slice(0, dot) : tr.name;
+            var prop = dot >= 0 ? tr.name.slice(dot + 1) : '';
+            // as translações de pé/mão foram gravadas no referencial
+            // da hierarquia original, que o jogo re-parenteou — só a
+            // translação do corpo (o balanço do andar) é segura
+            return prop !== 'position' || node === 'Body';
+          });
+          if (!tracks.length) return;
+          var c2 = new THREE.AnimationClip(clip.name, clip.duration, tracks);
+          // NÃO chamar setEffectiveWeight(0) nem play() aqui: o peso
+          // base multiplica o fade, então peso 0 deixaria o fadeIn sem
+          // efeito para sempre (a animação nunca apareceria). A ação
+          // só escreve nos ossos depois de play() em glbSetBaseClip.
+          clipActions[kind] = mixer.clipAction(c2);
+        });
         var group = new THREE.Group();
         var inner = new THREE.Group();
         inner.add(clone);
@@ -2725,7 +2794,25 @@
         clone.traverse(function(o){ if (o.isBone) rigBones[o.name] = o; });
         group.traverse(function(o){ if (o.isMesh) o.castShadow = true; });
         GL.scene.add(group);
-        return { group: group, inner: inner, parts: P, charId: colors.id, flip: flip, glb: true, info: info, bones: rigBones, innerQuat: innerQuat, innerQuatInv: innerQuat.clone().invert(), latAxis: latAxis };
+        return { group: group, inner: inner, parts: P, charId: colors.id, flip: flip, glb: true, info: info, bones: rigBones, innerQuat: innerQuat, innerQuatInv: innerQuat.clone().invert(), latAxis: latAxis, mixer: mixer, clipActions: clipActions, baseClip: null };
+      }
+      // troca a animação de base do modelo (parado/andando/comemoração),
+      // com crossfade. kind null desliga o mixer e o amostrador assume
+      // tudo (queda, agachar, pulo, morte). Ação com peso 0 não escreve
+      // nos ossos, então desligar é seguro.
+      function glbSetBaseClip(rig, kind){
+        if (!rig.mixer || !rig.clipActions) return;
+        if (rig.baseClip === kind) return;
+        var prev = rig.baseClip ? rig.clipActions[rig.baseClip] : null;
+        if (prev) prev.fadeOut(0.25);
+        rig.baseClip = kind;
+        var next = kind ? rig.clipActions[kind] : null;
+        if (next){
+          next.reset();
+          if (kind === 'wave'){ next.setLoop(THREE.LoopOnce, 1); next.clampWhenFinished = true; }
+          else next.setLoop(THREE.LoopRepeat, Infinity);
+          next.fadeIn(0.25).play();
+        }
       }
       // direção no espaço do modelo a partir de dois pontos amostrados
       // (em unidades de mundo, no grupo): frente e cima canônicas
@@ -2859,6 +2946,21 @@
         mq['LowerLeg' + supSide] = backLeg.q2.clone().multiply(info.restQuat['LowerLeg' + supSide]);
         mq['Foot' + supSide] = backLeg.q2.clone().multiply(info.restQuat['Foot' + supSide]);
         // --- escreve os quaternions locais (pai antes do filho) ---
+        // quando uma animação de base está ativa, ela dirige as
+        // pernas e parte do tronco/braço de apoio; o amostrador só
+        // corrige por cima (braço da arma mira, cabeça reage ao tiro).
+        // Sem animação ativa, o amostrador dirige tudo como antes.
+        var BW = null;
+        if (rig.baseClip){
+          var gs = flip ? 'L' : 'R', ss = flip ? 'R' : 'L';
+          BW = {};
+          ['Body','Hips','Abdomen','Torso','Chest'].forEach(function(n){ BW[n] = 0.45; });
+          BW['Neck'] = 0.55; BW['Head'] = 0.55;
+          BW['Shoulder' + gs] = 1; BW['UpperArm' + gs] = 1; BW['LowerArm' + gs] = 1; BW['Wrist' + gs] = 1;
+          BW['Shoulder' + ss] = 0.35; BW['UpperArm' + ss] = 0.35; BW['LowerArm' + ss] = 0.35; BW['Wrist' + ss] = 0.35;
+          BW['UpperLegL'] = 0; BW['LowerLegL'] = 0; BW['FootL'] = 0;
+          BW['UpperLegR'] = 0; BW['LowerLegR'] = 0; BW['FootR'] = 0;
+        }
         GLB_DRIVEN.forEach(function(n){
           var b = rig.bones[n];
           if (!b) return;
@@ -2866,8 +2968,26 @@
           var pq = (pn && mq[pn]) ? mq[pn] : (pn && info.restQuat[pn]) ? info.restQuat[pn] : _gq5.identity();
           var bq = mq[n] || info.restQuat[n];
           _gq4.copy(pq).invert().multiply(bq);
-          b.quaternion.copy(_gq4);
+          var w = BW ? (BW[n] == null ? 1 : BW[n]) : 1;
+          if (w >= 1) b.quaternion.copy(_gq4);
+          else if (w > 0) b.quaternion.slerp(_gq4, w);
+          // w == 0: fica o quaternion que o mixer escreveu (a animação)
         });
+        // pernas juntas no parado/comemoração: aplica a correção medida
+        // no modelo (GLB_CLOSE_*), com o peso da animação de base, para
+        // ela entrar e sair junto com o fade do clip
+        var closeW = 0;
+        if (rig.clipActions){
+          if (rig.clipActions.idle) closeW = Math.max(closeW, rig.clipActions.idle.getEffectiveWeight());
+          if (rig.clipActions.wave) closeW = Math.max(closeW, rig.clipActions.wave.getEffectiveWeight());
+        }
+        if (closeW > 0.001){
+          ['L','R'].forEach(function(s){
+            var ulB = rig.bones['UpperLeg' + s], ftB = rig.bones['Foot' + s];
+            if (ulB){ _gq4.copy(ulB.quaternion).multiply(GLB_CLOSE_UL[s]); ulB.quaternion.slerp(_gq4, closeW); }
+            if (ftB){ _gq4.copy(ftB.quaternion).multiply(GLB_CLOSE_F[s]); ftB.quaternion.slerp(_gq4, closeW); }
+          });
+        }
         // --- posições finais (para o chapéu, o revólver e o violão) ---
         var mp2b = glbComputePos(info, mq);
         var P = rig.parts;
@@ -3026,6 +3146,15 @@
           kneeF.y -= buckle * 0.12; bootF.y -= buckle * 0.06;
         }
         if (rig.glb){
+          // pose base pelas animações do próprio modelo (parado,
+          // andando, comemoração); queda, agachar, pulo e morte
+          // continuam no amostrador, que é quem conhece a mecânica
+          var clipKind = null;
+          if (hpNow > 0 && poseNow !== 'fallen' && (extra.crouchP || 0) < 0.05 && Math.abs(extra.jumpLift || 0) < 0.001){
+            clipKind = smp.celeb ? 'wave' : ((extra.walkSwing || 0) > 0 ? 'walk' : 'idle');
+          }
+          glbSetBaseClip(rig, clipKind);
+          if (rig.mixer && rig.baseClip) rig.mixer.update(dt3);
           // boneco humano de verdade: os ossos do modelo seguem as
           // juntas amostradas; o resto da função (pernas, braços,
           // tronco e cabeça do rig procedural) não se aplica aqui
