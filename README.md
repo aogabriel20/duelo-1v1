@@ -68,26 +68,31 @@ WebGL, o jogo avisa na tela e continua na versão 2D.
 
 ## Créditos dos modelos 3D
 
-Os dois pistoleiros são modelos do pacote **Ultimate Animated
-Character Pack**, de **Quaternius**, em domínio público
-(**CC0 1.0**), carregados a partir de arquivos GLB convertidos com
-FBX2glTF e distribuídos pelo Poly Pizza:
+Os dois pistoleiros são humanos realistas gerados com **MakeHuman /
+MPFB 2** (makehumancommunity.org), em domínio público (**CC0 1.0**),
+publicados no projeto **vsim** (github.com/kunalkushwaha/vsim,
+`packages/assets/library/`), com pele e roupas do pacote CC0
+`makehuman_system_assets`:
 
-- **Billy Poeira** — "Farmer", Quaternius, CC0 —
-  https://poly.pizza/m/7pn3R6hPvE
-- **Buster Scruggs** — "Adventurer", Quaternius, CC0 —
-  https://poly.pizza/m/5EGWBMpuXq
+- **Billy Poeira** — "man" (MPFB 2, CC0), camisa pintada de vermelha
+  na textura, calça escura.
+- **Buster Scruggs** — "suited" (MPFB 2, CC0), terno de geometria de
+  roupa de verdade, pintado de branco na textura.
 
-Os modelos foram repintados com as cores dos personagens e as
-animações do jogo (parado, andar, tiro, queda, morte, agachar,
-pular e reação ao tiro por região) dirigem os ossos deles em tempo
-real; as animações que vêm no pacote não são usadas. Three.js é
-MIT (https://threejs.org).
+Os modelos foram adaptados para o jogo (ossos renomeados para os nomes
+canônicos, camisa vermelha e terno branco) e as animações do jogo
+(parado, andar, tiro, queda, morte, agachar, pular e reação ao tiro
+por região) dirigem os ossos deles em tempo real, com as animações
+próprias dos modelos (idle, walk, wave) como base. Se os modelos
+novos falharem, o jogo tenta os modelos anteriores (Quaternius,
+"Farmer"/"Adventurer", CC0, via Poly Pizza — `billy-q.gltf` e
+`buster-q.gltf`). Three.js é MIT (https://threejs.org).
 
 ## Arquivos
 
 - `index.html` — o jogo inteiro (arte, sons, mecânica e online).
 - `three.module.js` — biblioteca 3D (Three.js r160), embutida para o jogo não depender de CDN.
 - `addons/` — GLTFLoader, BufferGeometryUtils e SkeletonUtils (Three.js r160).
-- `billy.glb` — modelo 3D humano do Billy Poeira ("Farmer", Quaternius, CC0).
-- `buster.glb` — modelo 3D humano do Buster Scruggs ("Adventurer", Quaternius, CC0).
+- `billy.gltf` — modelo 3D humano do Billy Poeira ("man", MakeHuman/MPFB 2, CC0).
+- `buster.gltf` — modelo 3D humano do Buster Scruggs ("suited", MakeHuman/MPFB 2, CC0).
+- `billy-q.gltf` / `buster-q.gltf` — modelos anteriores (Quaternius, CC0), usados só se os novos falharem.
