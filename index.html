@@ -1793,14 +1793,34 @@
          cima — ficam alinhados com o boneco 3D. Se o WebGL falhar,
          o jogo avisa e continua no 2D (nunca tela preta).
          ============================================================ */
-      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0 };
+      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0, bursts:[], burstLast:0 };
       var S3 = 1 / 80; // 1 unidade de mundo = 80 px do palco 2D
       function wX3(px){ return (px - 480) * S3; }
       function wY3(py, hh){ return (GROUND - py) * (hh || 1) * S3; }
       var MAT3CACHE = {};
+      var GRAIN3 = null; // textura de grão fino (pele/tecido) — tira o ar de plástico
+      function grainTexture3(){
+        if (GRAIN3) return GRAIN3;
+        var c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        var g = c.getContext('2d');
+        g.fillStyle = '#808080'; g.fillRect(0, 0, 128, 128);
+        for (var i = 0; i < 2600; i++){
+          var v = 96 + Math.floor(Math.random() * 64);
+          g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')';
+          g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 128), 1 + Math.random() * 2, 1 + Math.random() * 2);
+        }
+        GRAIN3 = new THREE.CanvasTexture(c);
+        GRAIN3.wrapS = THREE.RepeatWrapping; GRAIN3.wrapT = THREE.RepeatWrapping;
+        GRAIN3.repeat.set(2, 2);
+        return GRAIN3;
+      }
       function mat3(color, rough, metal){
         var k = color + '|' + rough + '|' + metal;
-        if (!MAT3CACHE[k]) MAT3CACHE[k] = new THREE.MeshStandardMaterial({ color: color, roughness: (rough == null ? 0.85 : rough), metalness: (metal || 0) });
+        if (!MAT3CACHE[k]){
+          var m = new THREE.MeshStandardMaterial({ color: color, roughness: (rough == null ? 0.85 : rough), metalness: (metal || 0) });
+          if ((metal || 0) < 0.5){ m.bumpMap = grainTexture3(); m.bumpScale = 0.25; }
+          MAT3CACHE[k] = m;
+        }
         return MAT3CACHE[k];
       }
       var UP3 = null, _qY3 = null, _va = null, _vb = null, _vd = null; // criados no GLInit, só se o Three.js existir
@@ -1924,6 +1944,10 @@
         sunL.shadow.camera.near = 1; sunL.shadow.camera.far = 32;
         sunL.shadow.bias = -0.0004; sunL.shadow.normalBias = 0.02;
         scene.add(sunL);
+        // luz de preenchimento suave da esquerda: o lado da sombra do rosto
+        // e do corpo não fica preto — pele e roupa mantêm o tom
+        var fillL = new THREE.DirectionalLight(0xffd9a8, 0.55);
+        fillL.position.set(-6, 4, 6); scene.add(fillL);
         // chão de terra vermelha com relevo — plano no meio do duelo, ondulado nas bordas
         var gg = new THREE.PlaneGeometry(70, 46, 56, 36);
         gg.rotateX(-Math.PI / 2);
@@ -2009,6 +2033,9 @@
         var fwd = flip ? -1 : 1; // para onde o rosto aponta na tela
         var group = new THREE.Group();
         var P = {};
+        // detalhe miúdo (olho, sobrancelha, dedo): sem sombra própria, para
+        // não pesar a passada de sombra — só os volumes grandes projetam sombra
+        function tiny(m){ m.castShadow = false; m.userData.noShadow = true; return m; }
         var coat = mat3(colors.coat, .8, 0), coatD = mat3(colors.coatDark, .85, 0);
         var pants = mat3(colors.pants, .85, 0), pantsD = mat3(colors.pantsDark, .85, 0);
         var skin = mat3(colors.skin, .7, 0), skinD = mat3(colors.skinDark, .7, 0);
@@ -2019,8 +2046,25 @@
         P.bootB = box3(0.30, 0.10, 0.15, boots); P.bootF = box3(0.30, 0.10, 0.15, boots);
         P.armB1 = cyl3(0.085, coatD); P.armB2 = cyl3(0.075, coatD);
         P.armG1 = cyl3(0.09, coat); P.armG2 = cyl3(0.08, coat);
-        P.handB = sph3(0.075, skin); P.handG = sph3(0.08, skin);
-        P.neck = cyl3(0.075, skin);
+        // mão com dedos: palma + 3 dedos enrolados + polegar (a da arma
+        // envolve o cabo do revólver; a de apoio fica semiaberta)
+        function handGroup(isGun){
+          var hg = new THREE.Group();
+          var palm = box3(0.085, 0.11, 0.05, skin); hg.add(palm);
+          for (var fi = 0; fi < 3; fi++){
+            var f = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.010, 0.075, 6), skin);
+            f.castShadow = false; f.userData.noShadow = true;
+            f.position.set(0.028 - fi * 0.028, -0.075, 0.012);
+            f.rotation.z = isGun ? 0.9 : 0.35; f.rotation.x = 0.25;
+            hg.add(f);
+          }
+          var th = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.011, 0.06, 6), skin);
+          th.castShadow = false; th.userData.noShadow = true;
+          th.position.set(-0.045, -0.02, 0.03); th.rotation.z = 0.8; hg.add(th);
+          return hg;
+        }
+        P.handB = handGroup(false); P.handG = handGroup(true);
+        P.neck = cyl3(0.085, skin);
         // tronco: grupo orientado do quadril ao ombro, com colete e botões
         var torsoG = new THREE.Group(); group.add(torsoG);
         var torsoCyl = new THREE.Mesh(new THREE.CylinderGeometry(1, 0.78, 1, 12), coat);
@@ -2029,37 +2073,106 @@
         var btns = [];
         for (var bi = 0; bi < 3; bi++){ var b = sph3(0.02, mat3('#d9a92c', .4, .7)); torsoG.add(b); btns.push(b); }
         P.torsoG = torsoG; P.torsoCyl = torsoCyl; P.vest = vest; P.btns = btns;
+        // volumes do corpo: ombros arredondados, peito, quadril e gola —
+        // o tronco deixa de ser um cilindro liso e ganha silhueta de gente
+        P.shoulderF = sph3(0.10, coat); group.add(P.shoulderF);
+        P.shoulderB = sph3(0.10, coatD); group.add(P.shoulderB);
+        P.chest = sph3(0.16, coat); P.chest.scale.set(1, 1.15, 0.85); group.add(P.chest);
+        P.pelvis = sph3(0.17, pants); P.pelvis.scale.set(1.1, 0.8, 0.85); group.add(P.pelvis);
+        P.collar = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.05, 12), mat3(colors.shirt, .9, 0));
+        P.collar.castShadow = false; P.collar.userData.noShadow = true; group.add(P.collar);
+        P.lapelL = null; P.lapelR = null;
+        if (colors.id === 'buster'){
+          // lapelas do terno branco
+          P.lapelL = box3(0.05, 0.30, 0.02, mat3('#e8e2d2', .85, 0)); torsoG.add(P.lapelL);
+          P.lapelR = box3(0.05, 0.30, 0.02, mat3('#e8e2d2', .85, 0)); torsoG.add(P.lapelR);
+        } else {
+          // lenço azul do Billy amarrado no pescoço
+          P.neckBand = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.12, 0.045, 12), mat3(colors.band, .85, 0));
+          P.neckBand.castShadow = false; P.neckBand.userData.noShadow = true; group.add(P.neckBand);
+        }
+        // joelhos com volume, sola e biqueira da bota, espora no calcanhar
+        P.kneeF = sph3(0.095, pants); group.add(P.kneeF);
+        P.kneeB = sph3(0.095, pantsD); group.add(P.kneeB);
+        P.soleF = box3(0.32, 0.03, 0.16, mat3('#2a1c10', .9, 0)); group.add(P.soleF);
+        P.soleB = box3(0.32, 0.03, 0.16, mat3('#2a1c10', .9, 0)); group.add(P.soleB);
+        P.toeF = box3(0.10, 0.07, 0.14, boots); group.add(P.toeF);
+        P.toeB = box3(0.10, 0.07, 0.14, boots); group.add(P.toeB);
+        P.spurF = tiny(sph3(0.02, steel)); group.add(P.spurF);
+        P.spurB = tiny(sph3(0.02, steel)); group.add(P.spurB);
         // cinto com fivela e coldre
         P.belt = box3(0.44, 0.11, 0.22, mat3('#5a3a1e', .8, 0)); group.add(P.belt);
         P.buckle = box3(0.09, 0.07, 0.03, mat3('#d9a92c', .4, .7)); group.add(P.buckle);
         P.holster = box3(0.09, 0.24, 0.07, mat3('#4a2f1a', .85, 0)); group.add(P.holster);
         var tail = box3(0.24, 0.34, 0.04, coatD); group.add(tail); P.tail = tail;
-        // cabeça: crânio, cabelo, nariz, olho, sobrancelha, lenço ou sorriso, chapéu
+        // CABEÇA — proporção de pessoa de verdade: crânio menor (o boneco
+        // tinha ~5,8 cabeças de altura; agora ~7,8) e o rosto DESENHADO
+        // SOBRE a superfície do crânio. Antes, olho e sobrancelha ficavam
+        // ENTERRADOS dentro da esfera da cabeça e não apareciam.
         var headG = new THREE.Group(); group.add(headG);
-        var skull = sph3(0.23, skin); headG.add(skull);
-        var hair = sph3(0.20, hairM); hair.scale.set(1, 0.85, 0.95); hair.position.set(-fwd * 0.05, 0.07, -0.02); headG.add(hair);
-        var nose = sph3(0.035, skin); nose.position.set(fwd * 0.21, -0.02, 0.03); headG.add(nose);
-        var eye = sph3(0.03, mat3('#241811', .6, 0)); eye.position.set(fwd * 0.10, 0.05, 0.155); headG.add(eye);
-        var brow = box3(0.09, 0.018, 0.02, hairM); brow.position.set(fwd * 0.10, 0.115, 0.16); headG.add(brow);
-        var bandana = null;
+        // crânio com 0,19 de raio (30 px): a cabeça passa a ser 1/7,5 da
+        // altura do corpo, como uma pessoa de verdade
+        var skull = sph3(0.19, skin); skull.scale.set(0.95, 1.08, 0.92); headG.add(skull);
+        // o rosto foi desenhado para o crânio de 0,17: o grupo faceG
+        // reescala tudo junto (x1,1176) para o crânio de 0,19 — o chapéu
+        // fica fora, no headG, sem reescala
+        var faceG = new THREE.Group(); faceG.scale.set(1.1176, 1.1176, 1.1176); headG.add(faceG);
+        // queixo (Buster, que não usa lenço) e maçãs do rosto
+        var chin = null;
+        if (!colors.faceCover){
+          chin = sph3(0.06, skin); chin.scale.set(0.9, 0.6, 0.8); chin.position.set(fwd * 0.05, -0.135, 0.01); faceG.add(chin);
+        }
+        var cheek = tiny(sph3(0.045, skinD)); cheek.scale.set(0.7, 0.55, 0.4); cheek.position.set(fwd * 0.07, -0.045, 0.125); faceG.add(cheek);
+        var cheek2 = tiny(sph3(0.04, skinD)); cheek2.scale.set(0.7, 0.55, 0.4); cheek2.position.set(fwd * 0.04, -0.045, -0.125); faceG.add(cheek2);
+        // cabelo: capa, tufo de trás e mechas laterais — volume por baixo do chapéu
+        var hair = sph3(0.15, hairM); hair.scale.set(1, 0.9, 0.95); hair.position.set(-fwd * 0.04, 0.055, -0.015); faceG.add(hair);
+        var hairBack = sph3(0.09, hairM); hairBack.scale.set(0.8, 1.1, 0.7); hairBack.position.set(-fwd * 0.13, -0.02, -0.03); faceG.add(hairBack);
+        var hairSide = sph3(0.05, hairM); hairSide.scale.set(0.8, 1, 0.6); hairSide.position.set(-fwd * 0.07, 0.05, 0.13); faceG.add(hairSide);
+        var hairSide2 = sph3(0.045, hairM); hairSide2.scale.set(0.8, 1, 0.6); hairSide2.position.set(-fwd * 0.07, 0.05, -0.13); faceG.add(hairSide2);
+        // orelhas dos dois lados, na cor mais escura da pele
+        var earF = tiny(sph3(0.042, skinD)); earF.scale.set(0.55, 1, 0.45); earF.position.set(-fwd * 0.01, 0.0, 0.155); faceG.add(earF);
+        var earB = tiny(sph3(0.042, skinD)); earB.scale.set(0.55, 1, 0.45); earB.position.set(-fwd * 0.01, 0.0, -0.155); faceG.add(earB);
+        // nariz: ponte + ponta mais escura, saindo da superfície do rosto
+        var noseBridge = tiny(box3(0.03, 0.09, 0.025, skin)); noseBridge.position.set(fwd * 0.145, 0.005, 0.02); noseBridge.rotation.z = -fwd * 0.15; faceG.add(noseBridge);
+        var noseTip = tiny(sph3(0.028, skinD)); noseTip.scale.set(1.4, 0.9, 0.9); noseTip.position.set(fwd * 0.165, -0.03, 0.02); faceG.add(noseTip);
+        // olhos dos dois lados, com brilho (olho vivo) e pálpebra que desce na piscada
+        var eye = tiny(sph3(0.026, mat3('#241811', .6, 0))); eye.position.set(fwd * 0.088, 0.04, 0.135); faceG.add(eye);
+        var eye2 = tiny(sph3(0.021, mat3('#1a120c', .6, 0))); eye2.position.set(fwd * 0.055, 0.04, -0.135); faceG.add(eye2);
+        var glint = tiny(sph3(0.007, mat3('#ffffff', .3, 0))); glint.position.set(fwd * 0.098, 0.048, 0.152); faceG.add(glint);
+        var glint2 = tiny(sph3(0.006, mat3('#ffffff', .3, 0))); glint2.position.set(fwd * 0.065, 0.048, -0.15); faceG.add(glint2);
+        var lid = tiny(box3(0.07, 0.012, 0.02, skin)); lid.position.set(fwd * 0.088, 0.068, 0.138); faceG.add(lid);
+        var lid2 = tiny(box3(0.06, 0.012, 0.018, skin)); lid2.position.set(fwd * 0.055, 0.068, -0.138); faceG.add(lid2);
+        // sobrancelhas dos dois lados (a da frente mexe com a expressão)
+        var brow = tiny(box3(0.07, 0.014, 0.016, hairM)); brow.position.set(fwd * 0.085, 0.088, 0.14); faceG.add(brow);
+        var brow2 = tiny(box3(0.06, 0.013, 0.014, hairM)); brow2.position.set(fwd * 0.05, 0.088, -0.14); faceG.add(brow2);
+        var bandana = null, smile = null, lip = null;
         if (colors.faceCover){
-          bandana = box3(0.22, 0.14, 0.26, mat3(colors.band, .85, 0));
-          bandana.position.set(fwd * 0.05, -0.115, 0); headG.add(bandana);
+          // lenço do Billy cobrindo a parte de baixo do rosto, seguindo a
+          // curva da face, com nó atrás do pescoço
+          bandana = sph3(0.16, mat3(colors.band, .85, 0)); bandana.scale.set(0.9, 0.55, 0.85); bandana.position.set(fwd * 0.02, -0.10, 0); faceG.add(bandana);
+          var knot = box3(0.06, 0.05, 0.05, mat3(colors.band, .85, 0)); knot.position.set(-fwd * 0.15, -0.09, 0); faceG.add(knot);
         }
-        var smile = null;
         if (colors.smile){
-          smile = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 8, 12, Math.PI * 0.9), mat3('#5d3418', .7, 0));
-          smile.position.set(fwd * 0.13, -0.09, 0.155); smile.rotation.z = Math.PI; smile.castShadow = false;
-          headG.add(smile);
+          // sorriso do Buster + lábio inferior
+          smile = new THREE.Mesh(new THREE.TorusGeometry(0.038, 0.007, 8, 12, Math.PI * 0.9), mat3('#5d3418', .7, 0));
+          smile.position.set(fwd * 0.085, -0.075, 0.125); smile.rotation.z = Math.PI; smile.castShadow = false; smile.userData.noShadow = true;
+          faceG.add(smile);
+          lip = tiny(sph3(0.018, skinD)); lip.scale.set(1.4, 0.6, 0.8); lip.position.set(fwd * 0.075, -0.098, 0.11); faceG.add(lip);
         }
-        var hatG = new THREE.Group(); hatG.position.set(0, 0.16, 0); headG.add(hatG);
+        // chapéu com volume: copa com vinco, aba com sombra embaixo, faixa
+        var hatG = new THREE.Group(); hatG.position.set(0, 0.13, 0); hatG.rotation.z = -fwd * 0.04; headG.add(hatG);
         var crown = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.155, 0.20, 14), mat3(colors.hat, .85, 0));
         crown.position.y = 0.10; crown.castShadow = true; hatG.add(crown);
-        var brim = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.025, 20), mat3(colors.hat, .85, 0));
+        var dent = tiny(sph3(0.05, mat3(colors.hatDark, .9, 0))); dent.scale.set(1.6, 0.4, 1.2); dent.position.set(0, 0.205, -0.02); hatG.add(dent);
+        var brim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.025, 20), mat3(colors.hat, .85, 0));
         brim.castShadow = true; hatG.add(brim);
+        var brimShade = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.008, 20), mat3('#3a2a18', .9, 0));
+        brimShade.position.y = -0.017; brimShade.castShadow = false; brimShade.userData.noShadow = true; hatG.add(brimShade);
         var hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 14), mat3(colors.band, .85, 0));
         hatBand.position.y = 0.03; hatG.add(hatBand);
-        P.headG = headG; P.eye = eye; P.brow = brow; P.hatG = hatG; P.smile = smile;
+        P.headG = headG; P.eye = eye; P.eye2 = eye2; P.glint = glint; P.glint2 = glint2;
+        P.lid = lid; P.lid2 = lid2; P.brow = brow; P.brow2 = brow2; P.hatG = hatG;
+        P.smile = smile; P.lip = lip; P.chin = chin; P.earF = earF; P.earB = earB; P.noseTip = noseTip;
         // revólver 3D: cano, tambor que gira, armação, cabo e martelo
         var gunG = new THREE.Group(); group.add(gunG);
         var barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.36, 10), steel);
@@ -2096,7 +2209,7 @@
         group.add(P.bootB); group.add(P.bootF);
         group.add(P.armB1); group.add(P.armB2); group.add(P.armG1); group.add(P.armG2);
         group.add(P.handB); group.add(P.handG); group.add(P.neck);
-        group.traverse(function(o){ if (o.isMesh) o.castShadow = true; });
+        group.traverse(function(o){ if (o.isMesh) o.castShadow = !o.userData.noShadow; });
         blood.castShadow = false;
         GL.scene.add(group);
         return { group: group, parts: P, charId: colors.id, flip: flip };
@@ -2111,10 +2224,25 @@
         var S = colors.id === 'buster' ? U_SET : B_SET;
         var smp = sampleFig(cx, flip, colors, angle, side, now, seed, hatOff, extra, S);
         var j = smp.j, gun = smp.gun, hh = colors.h || 1;
+        // respiração: só parado, vivo e sem andar/agachar — o peito infla no
+        // ciclo de 2,6 s do parado, como uma pessoa respirando
+        var hpNow = smp.hp;
+        var poseNow = side === 'you' ? G.poseYou : G.poseOpp;
+        var poseAtNow = side === 'you' ? G.poseYouAt : G.poseOppAt;
+        var idleNow = hpNow > 0 && poseNow !== 'fallen' && !(extra.walkSwing > 0) && (extra.crouchP || 0) < 0.05;
+        var br = idleNow ? Math.sin((now + seed * 900) / 2600 * Math.PI * 2) : 0;
         var P = rig.parts, g = rig.group;
         function mp(p){ return { x: (flip ? -p[0] : p[0]) * S3, y: (GROUND - p[1]) * hh * S3, z: 0 }; }
         function mj(n){ return mp(j[n]); }
-        var sq = extra.squash || 0;
+        // aterrissagem do pulo: o corpo comprime e levanta poeira, uma vez por pulo
+        var jl = extra.jumpLift || 0;
+        if ((rig.lastLift || 0) > 0.05 && jl <= 0.001){
+          rig.landAt = now;
+          if (typeof effects !== 'undefined') effects.push({ kind:'dust', x: cx, y: GROUND, born: now, until: now + 650 });
+        }
+        rig.lastLift = jl;
+        var landSq = (rig.landAt && now - rig.landAt < 260) ? Math.sin((now - rig.landAt) / 260 * Math.PI) * 0.7 : 0;
+        var sq = Math.max(extra.squash || 0, landSq);
         g.position.set(wX3(cx), (extra.hop || 0) * S3, 0);
         g.scale.set(1 + 0.10 * sq, 1 - 0.16 * sq, 1);
         var hip = mj('hip'), sho = mj('sho'), head = mj('head');
@@ -2130,15 +2258,27 @@
           mesh.rotation.set(0, 0, ang);
         }
         bootRot(kneeB, bootB, P.bootB); bootRot(kneeF, bootF, P.bootF);
+        // joelhos com volume e bota completa: sola, biqueira e espora
+        P.kneeF.position.set(kneeF.x, kneeF.y, 0.02); P.kneeB.position.set(kneeB.x, kneeB.y, -0.02);
+        function bootExtra(knee, boot, sole, toe, spur){
+          var ang = Math.atan2(boot.y - knee.y, boot.x - knee.x) - Math.PI / 2;
+          sole.position.set(boot.x + fwd * 0.07, boot.y - 0.065, 0); sole.rotation.set(0, 0, ang);
+          toe.position.set(boot.x + fwd * 0.20, boot.y - 0.03, 0); toe.rotation.set(0, 0, ang);
+          spur.position.set(boot.x - fwd * 0.10, boot.y + 0.01, 0);
+        }
+        bootExtra(kneeB, bootB, P.soleB, P.toeB, P.spurB);
+        bootExtra(kneeF, bootF, P.soleF, P.toeF, P.spurF);
         // braço de apoio (atrás do corpo) e braço da arma (segue a mira)
         var shBack = { x: sho.x + (flip ? 7 : -7) * S3, y: sho.y - 5 * hh * S3, z: -0.04 };
         setLimb3(P.armB1, shBack, elbL, 0.085); setLimb3(P.armB2, elbL, handL, 0.075);
         P.handB.position.set(handL.x, handL.y, -0.04);
+        P.handB.rotation.z = Math.atan2(handL.y - elbL.y, handL.x - elbL.x) + Math.PI / 2;
         setLimb3(P.armG1, sho, gunE, 0.09); setLimb3(P.armG2, gunE, gunH, 0.08);
         P.handG.position.set(gunH.x, gunH.y, 0.03);
+        P.handG.rotation.z = flip ? (gun.a - Math.PI) : (-gun.a);
         // pescoço visível, ligando os ombros à cabeça
         var neckBase = lerpPt(j.sho, j.head, .38), neckTop = lerpPt(j.sho, j.head, .86);
-        setLimb3(P.neck, mp(neckBase), mp(neckTop), 0.075);
+        setLimb3(P.neck, mp(neckBase), mp(neckTop), 0.085);
         // tronco afunilado, orientado do quadril ao ombro
         _va.set(sho.x - hip.x, sho.y - hip.y, 0);
         var tlen = _va.length() || 0.001;
@@ -2147,22 +2287,45 @@
         // o alinhamento mínimo não preserva o lado da frente: no oponente,
         // gira o tronco 180° no próprio eixo para o colete ficar no peito
         if (flip){ _qY3.setFromAxisAngle(UP3, Math.PI); P.torsoG.quaternion.multiply(_qY3); }
-        P.torsoCyl.scale.set(0.19, tlen, 0.15); P.torsoCyl.position.y = tlen / 2;
+        P.torsoCyl.scale.set(0.19, tlen * (1 + 0.012 * br), 0.15); P.torsoCyl.position.y = tlen / 2;
         P.vest.scale.set(0.05, tlen * 0.85, 0.16); P.vest.position.set(0.135, tlen * 0.5, 0);
         for (var bi = 0; bi < 3; bi++){ P.btns[bi].position.set(0.165, tlen * (0.30 + bi * 0.22), 0.02); }
+        // volumes do corpo acompanhando o tronco
+        P.shoulderF.position.set(sho.x + fwd * 0.03, sho.y, 0.10);
+        P.shoulderB.position.set(sho.x - fwd * 0.03, sho.y, -0.10);
+        var chestP = lerpPt([hip.x, hip.y], [sho.x, sho.y], 0.68);
+        P.chest.position.set(chestP[0], chestP[1], 0.02);
+        P.chest.scale.set(1 + 0.02 * br, 1.15 * (1 + 0.01 * br), 0.85);
+        P.pelvis.position.set(hip.x, hip.y, 0);
+        if (P.lapelL){ P.lapelL.position.set(0.165, tlen * 0.62, 0.06); P.lapelR.position.set(0.165, tlen * 0.62, -0.06); }
         // cinto, fivela e coldre acompanham o quadril
         var tang = Math.atan2(sho.y - hip.y, sho.x - hip.x) - Math.PI / 2;
         P.belt.position.set(hip.x, hip.y, 0); P.belt.rotation.z = tang;
         P.buckle.position.set(hip.x + fwd * 0.20, hip.y, 0.115);
         P.holster.position.set(hip.x - fwd * 0.20, hip.y - 0.06, -0.02); P.holster.rotation.z = fwd * 0.3;
-        P.tail.position.set(hip.x - fwd * 0.20, hip.y - 0.10, -0.06); P.tail.rotation.z = fwd * 0.25;
-        // cabeça (inclinação do quadro) e rosto
-        P.headG.position.set(head.x, head.y, 0);
-        P.headG.rotation.z = (flip ? 1 : -1) * (j.headTilt || 0);
+        P.tail.position.set(hip.x - fwd * 0.20, hip.y - 0.10, -0.06);
+        P.tail.rotation.z = fwd * 0.25 + (extra.walkSwing || 0) * 0.3 * Math.sin(now / 95 + 1);
+        // gola e lenço do pescoço acompanham a inclinação do tronco
+        var collarP = lerpPt([sho.x, sho.y], [head.x, head.y], 0.12);
+        P.collar.position.set(collarP[0], collarP[1], 0); P.collar.rotation.z = tang;
+        if (P.neckBand){ P.neckBand.position.set(collarP[0], collarP[1], 0); P.neckBand.rotation.z = tang; }
+        // cabeça (inclinação do quadro) e rosto — respiração, piscada com
+        // pálpebra, chapéu com atraso (movimento secundário: o chapéu
+        // reage um pouco depois da cabeça)
+        P.headG.position.set(head.x, head.y + br * 0.006, 0);
+        var headTiltNow = (flip ? 1 : -1) * (j.headTilt || 0);
+        P.headG.rotation.z = headTiltNow + (extra.walkSwing || 0) * 0.05 * Math.sin(now / 95);
         P.hatG.visible = !hatOff;
+        rig.hatSmooth = (rig.hatSmooth == null ? headTiltNow : rig.hatSmooth + (headTiltNow - rig.hatSmooth) * 0.12);
+        P.hatG.rotation.z = -fwd * 0.04 + (rig.hatSmooth - headTiltNow);
         P.eye.scale.set(1, smp.blink ? 0.15 : 1, 1);
+        P.eye2.scale.set(1, smp.blink ? 0.15 : 1, 1);
+        P.lid.position.y = smp.blink ? 0.045 : 0.068;
+        P.lid2.position.y = smp.blink ? 0.045 : 0.068;
+        P.glint.visible = !smp.blink; P.glint2.visible = !smp.blink;
         var expr = extra.expr || '';
         P.brow.rotation.z = expr === 'hurt' ? -0.45 : expr === 'stun' ? 0.5 : 0;
+        P.brow2.rotation.z = expr === 'hurt' ? -0.3 : expr === 'stun' ? 0.35 : 0;
         if (P.smile) P.smile.visible = true;
         // revólver na mão, apontando na direção da mira
         P.gunG.position.set(gunH.x, gunH.y, 0.05);
@@ -2172,16 +2335,55 @@
         // violão nas costas
         if (P.guitarG){
           P.guitarG.position.set(sho.x + (flip ? 0.34 : -0.34), sho.y - 0.42, 0.04);
-          P.guitarG.rotation.z = flip ? 0.55 : -0.55;
+          P.guitarG.rotation.z = (flip ? 0.55 : -0.55) + (extra.walkSwing || 0) * 0.12 * Math.sin(now / 95 + 1);
         }
         // poça de sangue quando caído ou morto
         var fallen = (side === 'you' ? G.poseYou : G.poseOpp) === 'fallen';
         var dead = (side === 'you' ? G.hpYou : G.hpOpp) <= 0;
         P.blood.visible = fallen || dead;
         P.blood.position.set(wX3(cx), 0.015, 0.15);
+        // poeira 3D quando o corpo bate no chão (uma vez por queda)
+        if (poseNow === 'fallen'){
+          var ft = now - (poseAtNow || now);
+          if (ft >= 560 && ft < 640 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(cx), 0.15); }
+        } else rig.fallBurstDone = false;
+      }
+      // rajada de poeira 3D (impacto da queda): 18 partículas que voam,
+      // sobem e assentam em ~700 ms
+      function burstDust3(x3, z3){
+        if (!GL.ok || !GL.scene) return;
+        var n = 18, pos = new Float32Array(n * 3), vel = [];
+        for (var i = 0; i < n; i++){
+          pos[i * 3] = x3; pos[i * 3 + 1] = 0.08; pos[i * 3 + 2] = z3;
+          var a = Math.random() * Math.PI * 2, sp = 0.5 + Math.random() * 1.1;
+          vel.push([Math.cos(a) * sp, 0.6 + Math.random() * 0.9, Math.sin(a) * sp * 0.4]);
+        }
+        var g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        var m = new THREE.PointsMaterial({ color: 0xc9a06a, size: 0.14, transparent: true, opacity: 0.7, depthWrite: false });
+        var pts = new THREE.Points(g, m);
+        GL.scene.add(pts);
+        GL.bursts.push({ pts: pts, vel: vel, born: performance.now() });
       }
       function GLRender(now){
         if (!GL.ok) return;
+        // rajadas de poeira em andamento
+        if (GL.bursts.length){
+          var bdt = Math.min(0.05, (now - (GL.burstLast || now)) / 1000); GL.burstLast = now;
+          GL.bursts = GL.bursts.filter(function(b){
+            var age = (now - b.born) / 700;
+            if (age >= 1){ GL.scene.remove(b.pts); b.pts.geometry.dispose(); b.pts.material.dispose(); return false; }
+            var arr = b.pts.geometry.attributes.position.array;
+            for (var i = 0; i < b.vel.length; i++){
+              arr[i * 3] += b.vel[i][0] * bdt; arr[i * 3 + 1] += b.vel[i][1] * bdt; arr[i * 3 + 2] += b.vel[i][2] * bdt;
+              b.vel[i][1] -= 2.2 * bdt;
+              if (arr[i * 3 + 1] < 0.02) arr[i * 3 + 1] = 0.02;
+            }
+            b.pts.geometry.attributes.position.needsUpdate = true;
+            b.pts.material.opacity = 0.7 * (1 - age);
+            return true;
+          });
+        }
         // poeira flutuando
         if (GL.dust){
           var dt = Math.min(0.05, (now - (GL.dustLast || now)) / 1000); GL.dustLast = now;
