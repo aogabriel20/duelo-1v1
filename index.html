@@ -408,10 +408,11 @@
          Gráficos 3D em tempo real com Three.js (three.module.js,
          embutido no repositório, sem CDN); os bonecos são modelos
          humanos de verdade em GLB (billy.gltf e buster.gltf), com
-         licença livre (CC0, Quaternius, via Poly Pizza). Se o
-         WebGL falhar, o jogo avisa e continua na versão 2D que já
-         existia; se um GLB não carregar, o boneco procedural
-         antigo desenha no lugar.
+         licença livre (CC0, gerados com MakeHuman/MPFB 2, via
+         projeto vsim). Se o WebGL falhar, o jogo avisa e continua
+         na versão 2D que já existia; se um GLB não carregar, o
+         modelo anterior (Quaternius) é tentado e, se falhar, o
+         boneco procedural antigo desenha no lugar.
          ============================================================ */
       var W = 960, H = 540, GROUND = 392;
       var X_YOU = 150, X_OPP = 810;
@@ -1843,8 +1844,9 @@
          RENDER 3D EM TEMPO REAL — Three.js (three.module.js +
          GLTFLoader, embutidos no repositório; nada de CDN). Os
          bonecos são MODELOS 3D HUMANOS DE VERDADE (GLB, licença
-         livre — CC0, Quaternius): o Fazendeiro é o Billy Poeira e o
-         Aventureiro é o Buster Scruggs. Cada junta do amostrador
+         livre — CC0, MakeHuman/MPFB 2): o homem de camisa vermelha
+         é o Billy Poeira e o homem de terno branco é o Buster
+         Scruggs. Cada junta do amostrador
          quadro a quadro (sampleFig — as mesmas 9 sequências, mesmos
          tempos) vira uma articulação do modelo, com cinemática
          inversa de dois ossos nos braços e nas pernas, com luz e
@@ -2443,43 +2445,46 @@
       /* ============================================================
          MODELOS 3D HUMANOS DE VERDADE (GLB)
          Os bonecos montados por pedaços batiam no teto e pareciam
-         manequins. Agora os dois são modelos humanos feitos por
-         artistas 3D, com licença livre, carregados como GLB:
-           Billy Poeira   = "Farmer", Quaternius, CC0 1.0
-                            (Ultimate Animated Character Pack),
-                            via Poly Pizza — poly.pizza/m/7pn3R6hPvE
-           Buster Scruggs = "Adventurer", Quaternius, CC0 1.0,
-                            via Poly Pizza — poly.pizza/m/5EGWBMpuXq
-         Os dois têm o mesmo esqueleto (62 ossos, com dedos) e 24
-         animações próprias — que o jogo NÃO usa: as poses continuam
-         vindo do amostrador quadro a quadro (sampleFig), para a
-         mecânica, o tempo e a reação ao tiro ficarem idênticos.
-         O amostrador continua sendo a fonte da pose: as juntas
-         amostradas dirigem os ossos dos modelos, com cinemática
-         inversa de dois ossos nos braços e nas pernas (a mão e o pé
-         caem exatamente onde o jogo espera, mesmo com os membros do
-         modelo mais compridos que os do desenho), então as 9
-         sequências, a reação ao tiro por região, o agachar e o pular
-         funcionam iguais — só o corpo que é humano de verdade.
-         Enquanto os GLBs carregam (ou se o carregamento falhar), os
-         rigs procedurais antigos continuam desenhando; o jogo nunca
-         fica sem boneco. O Fazendeiro já traz o chapéu dele (de
-         palha, repintado de marrom); o Aventureiro não tem chapéu
-         e ganha o chapéu branco do jogo, e a mochila dele some para
-         o violão do Buster aparecer nas costas.
+         manequins, e os modelos low-poly de desenho animado também.
+         Agora os dois são humanos realistas gerados com MakeHuman /
+         MPFB 2 (CC0 1.0), publicados no projeto vsim
+         (github.com/kunalkushwaha/vsim, packages/assets/library/):
+           Billy Poeira   = "man" — homem adulto, pele real, camisa
+                            pintada de vermelha na textura, calça
+                            escura; gerado com MPFB 2, pele do pacote
+                            makehuman_system_assets (CC0)
+           Buster Scruggs = "suited" — homem de terno (geometria de
+                            roupa de verdade: camisa + calça jeans +
+                            sapatos), terno pintado de branco na
+                            textura; gerado com MPFB 2, roupa e pele
+                            do pacote makehuman_system_assets (CC0)
+         Os dois têm o mesmo esqueleto (53 ossos, com dedos) e 4
+         animações próprias (idle, walk, run, wave) — o jogo usa
+         idle, walk e wave como base (parado, andar, comemoração),
+         com crossfade de 0,25 s; a mecânica (braço da arma segue o
+         mouse, reação ao tiro por região, queda, agachar, pular)
+         mistura por cima por parte do corpo. Os ossos dos modelos
+         foram renomeados no .gltf para os nomes canônicos do jogo
+         (Hips, Abdomen, Torso, Chest, Neck, Head, ShoulderL, ...).
+         Se o modelo novo falhar, o jogo tenta os modelos anteriores
+         (Quaternius, billy-q.gltf/buster-q.gltf) e, se esses também
+         falharem, os rigs procedurais antigos continuam desenhando;
+         o jogo nunca fica sem boneco. Nenhum dos dois modelos traz
+         chapéu, então os dois ganham o chapéu do jogo (marrom para
+         o Billy, branco para o Buster); o violão do Buster vai nas
+         costas.
          ============================================================ */
       var GLB_MODEL_FILE = { billy:'billy.gltf', buster:'buster.gltf' };
+      // se o modelo novo falhar, tenta o anterior (Quaternius CC0)
+      var GLB_FALLBACK_FILE = { billy:'billy-q.gltf', buster:'buster-q.gltf' };
       // cores de cada personagem, aplicadas sobre os materiais do
       // modelo (o modelo traz só o nome do material; a identidade
-      // vem daqui). Materiais fora da lista ficam como o artista fez
-      // (olhos escuros e boca vermelha do Fazendeiro, por exemplo).
-      var GLB_COLORS = {
-        billy:  { Skin:'#e2ac74', Eyebrows:'#4a2f1d', Brown:'#c1271d', LightBlue:'#2a4a8a', Brown2:'#5a3a1e', Beige:'#8a6224' },
-        buster: { Skin:'#e8b98a', Eyebrows:'#d9b45c', Hair:'#d9b45c', Green:'#f5f2e8', LightGreen:'#ffffff', Brown:'#f5f2e8', Brown2:'#f5f2e8', Black:'#141216', Grey:'#f5f2e8' }
-      };
-      // materiais que somem no modelo (a mochila do Aventureiro: o
-      // violão do Buster vai no lugar dela)
-      var GLB_HIDE = { billy: [], buster: ['Gold'] };
+      // vem daqui). Nos modelos atuais as texturas já trazem a
+      // identidade (camisa vermelha, terno branco), então nada aqui
+      // é repintado — materiais fora da lista ficam como o artista fez.
+      var GLB_COLORS = { billy: {}, buster: {} };
+      // materiais que somem no modelo (nenhum nos modelos atuais)
+      var GLB_HIDE = { billy: [], buster: [] };
       // cadeia do esqueleto (os dois modelos têm o mesmo): o próximo
       // osso de cada um, para medir a direção de repouso
       var GLB_NEXT = { Body:'Hips', Hips:'Abdomen', Abdomen:'Torso', Torso:'Chest', Chest:'Neck', Neck:'Head', Head:'Head', ShoulderL:'UpperArmL', ShoulderR:'UpperArmR', UpperArmL:'LowerArmL', UpperArmR:'LowerArmR', LowerArmL:'WristL', LowerArmR:'WristR', WristL:'WristL', WristR:'WristR', UpperLegL:'LowerLegL', UpperLegR:'LowerLegR', LowerLegL:'FootL', LowerLegR:'FootR', FootL:'FootL', FootR:'FootR' };
@@ -2529,12 +2534,16 @@
         if (typeof fetch !== 'function' || typeof GLTFLoader === 'undefined') return;
         var loader = new GLTFLoader();
         ['billy','buster'].forEach(function(id){
-          fetch(GLB_MODEL_FILE[id]).then(function(r){
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.arrayBuffer();
-          }).then(function(buf){
-            loader.parse(buf, '', function(gltf){
-              glbFixHierarchy(gltf.scene);
+          // tenta o modelo novo; se falhar (rede, arquivo, parse),
+          // tenta o modelo anterior (Quaternius) uma vez; se esse
+          // também falhar, o jogo segue com os rigs procedurais
+          (function tryLoad(url, isFallback){
+            fetch(url).then(function(r){
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.arrayBuffer();
+            }).then(function(buf){
+              loader.parse(buf, '', function(gltf){ try {
+                glbFixHierarchy(gltf.scene);
               // as pernas do modelo são mais compridas que as do desenho 2D
               // (quadril 1,44 unidades acima do pé, contra 1,04 no desenho):
               // com as pernas dirigidas pelo clip, o pé ficava ~0,4 abaixo
@@ -2576,8 +2585,10 @@
               });
               gltf.scene.updateMatrixWorld(true);
               if (GL.glbCache.billy && GL.glbCache.buster) GL.useGLB = true;
-            }, function(){ GL.glbFailed = true; });
-          }).catch(function(){ GL.glbFailed = true; });
+              } catch (e){ var _m = id + ' cb: ' + (e && e.stack ? e.stack.split('\n').slice(0,4).join(' | ') : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; }
+            }, function(e){ var _m = id + ' parse: ' + (e && e.message ? e.message : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; });
+          }).catch(function(e){ var _m = id + ' fetch: ' + (e && e.message ? e.message : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; });
+          })(GLB_MODEL_FILE[id], false);
         });
       }
       // informação do modelo em espaço local (antes de qualquer
@@ -2599,6 +2610,16 @@
           info.restLocal[n] = b.position.clone();
           info.parent[n] = (b.parent && b.parent.isBone) ? b.parent.name : null;
         });
+        // os modelos MPFB não têm osso 'Body' (o código espera um nó
+        // entre Root e Hips): sintetiza um, parado na origem, para
+        // glbComputePos e o laço da coluna não quebrarem
+        if (!bones.Body && bones.Root){
+          info.restQuat.Body = info.restQuat.Root.clone();
+          info.restPos.Body = info.restPos.Root.clone();
+          info.restLocal.Body = new THREE.Vector3();
+          info.parent.Body = 'Root';
+          info.restDir.Body = new THREE.Vector3(0, 1, 0);
+        }
         // escala de unidade do modelo (a posição local pode estar em
         // metros ou em centímetros): mede no osso do corpo
         var body = bones.Body;
@@ -2638,6 +2659,32 @@
           var d = new THREE.Vector3(ec.x - hp.x, 0, ec.z - hp.z);
           if (d.lengthSq() > 0.0025) info.fwd = d.normalize();
         }
+        // altura do chapéu medida no modelo: do osso da cabeça até o
+        // topo da malha, menos 0,08 para a aba assentar na cabeça
+        // (mesma folga do modelo anterior)
+        var topY = -Infinity;
+        scene.traverse(function(o){
+          if ((o.isSkinnedMesh || o.isMesh) && o.geometry){
+            var gg = o.geometry;
+            if (!gg.boundingBox) gg.computeBoundingBox();
+            if (gg.boundingBox){
+              var cc = gg.boundingBox.max.clone().applyMatrix4(o.matrixWorld);
+              if (cc.y > topY) topY = cc.y;
+            }
+          }
+        });
+        if (bones.Head && topY > -Infinity) info.hatLift = Math.max(0.05, topY - info.restPos.Head.y - 0.08);
+        // pernas juntas no parado: só aplica a correção se os pés de
+        // repouso estiverem escalonados (um à frente, um atrás), como
+        // no modelo anterior (0,41 m); os modelos MPFB já têm os pés
+        // lado a lado (escalonamento 0), então a correção fica neutra
+        var stag = 0;
+        if (bones.FootL && bones.FootR){
+          stag = Math.abs((info.restPos.FootL.x - info.restPos.FootR.x) * info.fwd.x + (info.restPos.FootL.z - info.restPos.FootR.z) * info.fwd.z);
+        }
+        var closeOn = stag > 0.15;
+        info.closeUL = closeOn ? GLB_CLOSE_UL : { L: new THREE.Quaternion(), R: new THREE.Quaternion() };
+        info.closeF = closeOn ? GLB_CLOSE_F : { L: new THREE.Quaternion(), R: new THREE.Quaternion() };
         if (bones.Head) info.scale = ((GROUND - 180) * S3) / info.restPos.Head.y;
         // o torso do modelo (proporção humana de verdade) é mais curto
         // que o do desenho 2D: quadril-cabeça 0,69 m no modelo contra
@@ -2709,16 +2756,18 @@
         var src = GL.glbCache[colors.id];
         var info = GL.glbInfo[colors.id];
         var clone = cloneSkinned(src.scene);
-        // animações próprias do modelo: o .gltf já traz 24 clips
-        // feitos para esse corpo. O mixer escreve a pose base e o
-        // jogo só corrige por cima o que a mecânica exige (mira, tiro,
-        // queda). Sem isso o boneco fica com a pose do amostrador 2D,
-        // que entorta o modelo (pernas abertas, braço esticado).
+        // animações próprias do modelo: o .gltf traz os clips feitos
+        // para esse corpo (idle, walk, run, wave nos MPFB; Idle_Gun,
+        // Walk, Wave nos Quaternius de reserva). O mixer escreve a
+        // pose base e o jogo só corrige por cima o que a mecânica
+        // exige (mira, tiro, queda). Sem isso o boneco fica com a
+        // pose do amostrador 2D, que entorta o modelo (pernas
+        // abertas, braço esticado).
         var mixer = new THREE.AnimationMixer(clone);
         var clipActions = {};
         (src.animations || []).forEach(function(clip){
           var kind = null, nm = clip.name || '';
-          if (/(^|\|)Idle_Gun$/.test(nm) || nm.indexOf('idle_breathe') >= 0 || nm.indexOf('idle_neutral') >= 0) kind = 'idle';
+          if (/(^|\|)Idle_Gun$/.test(nm) || nm.indexOf('idle_breathe') >= 0 || nm.indexOf('idle_neutral') >= 0 || nm === 'idle') kind = 'idle';
           else if (/Walk/i.test(nm)) kind = 'walk';
           else if (/Wave|Cheer/i.test(nm)) kind = 'wave';
           if (!kind || clipActions[kind]) return;
@@ -2760,7 +2809,7 @@
               var mm = mats[nm];
               if (scheme[nm]) mm.color.set(scheme[nm]);
               mm.metalness = 0;
-              mm.roughness = nm === 'Skin' ? 0.62 : 0.88;
+              mm.roughness = (nm === 'Skin' || nm === 'Human.body') ? 0.62 : 0.88;
               return mm;
             });
             o.material = Array.isArray(o.material) ? out : out[0];
@@ -2769,10 +2818,9 @@
         });
         var P = {};
         var fwd = flip ? -1 : 1;
-        // o Fazendeiro já traz o chapéu dele; o Aventureiro não tem
-        // chapéu e ganha o chapéu branco do jogo
-        if (colors.id === 'buster'){ P.hatG = makeHat3D(colors, fwd); group.add(P.hatG); }
-        else P.hatG = null;
+        // nenhum dos modelos atuais traz chapéu: os dois ganham o
+        // chapéu do jogo (marrom para o Billy, branco para o Buster)
+        P.hatG = makeHat3D(colors, fwd); group.add(P.hatG);
         if (colors.guitar){ P.guitarG = makeGuitar3D(); group.add(P.guitarG); }
         else P.guitarG = null;
         var gun = makeRevolver3D();
@@ -2973,19 +3021,22 @@
           else if (w > 0) b.quaternion.slerp(_gq4, w);
           // w == 0: fica o quaternion que o mixer escreveu (a animação)
         });
-        // pernas juntas no parado/comemoração: aplica a correção medida
-        // no modelo (GLB_CLOSE_*), com o peso da animação de base, para
-        // ela entrar e sair junto com o fade do clip
+        // pernas juntas no parado/comemoração: aplica a correção
+        // medida no modelo (info.closeUL/closeF — GLB_CLOSE_* quando
+        // os pés de repouso são escalonados, neutra quando já estão
+        // lado a lado), com o peso da animação de base, para ela
+        // entrar e sair junto com o fade do clip
         var closeW = 0;
         if (rig.clipActions){
           if (rig.clipActions.idle) closeW = Math.max(closeW, rig.clipActions.idle.getEffectiveWeight());
           if (rig.clipActions.wave) closeW = Math.max(closeW, rig.clipActions.wave.getEffectiveWeight());
         }
         if (closeW > 0.001){
+          var cUL = info.closeUL || GLB_CLOSE_UL, cF = info.closeF || GLB_CLOSE_F;
           ['L','R'].forEach(function(s){
             var ulB = rig.bones['UpperLeg' + s], ftB = rig.bones['Foot' + s];
-            if (ulB){ _gq4.copy(ulB.quaternion).multiply(GLB_CLOSE_UL[s]); ulB.quaternion.slerp(_gq4, closeW); }
-            if (ftB){ _gq4.copy(ftB.quaternion).multiply(GLB_CLOSE_F[s]); ftB.quaternion.slerp(_gq4, closeW); }
+            if (ulB){ _gq4.copy(ulB.quaternion).multiply(cUL[s]); ulB.quaternion.slerp(_gq4, closeW); }
+            if (ftB){ _gq4.copy(ftB.quaternion).multiply(cF[s]); ftB.quaternion.slerp(_gq4, closeW); }
           });
         }
         // --- posições finais (para o chapéu, o revólver e o violão) ---
