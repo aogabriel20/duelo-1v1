@@ -226,6 +226,7 @@
             <canvas id="gl" width="960" height="540"></canvas>
             <canvas id="game" width="960" height="540"></canvas>
             <div class="gl-msg" id="glMsg"></div>
+            <div class="gl-msg" id="glbMsg" style="top:44px"></div>
             <div class="dmg-flash" id="dmgFlash"></div>
             <div class="stage-msg" id="stageMsg"></div>
           </div>
@@ -423,7 +424,7 @@
          boneco procedural antigo desenha no lugar.
          ============================================================ */
       var W = 960, H = 540, GROUND = 392;
-      var X_YOU = 150, X_OPP = 810;
+      var X_YOU = 270, X_OPP = 690;
       var CYL = { x: 86, y: 466, r: 60 }; // tambor de balas do jogador (canto inferior esquerdo)
       var WIN_SCORE = 3, ROUND_TIME = 30000; // melhor de 5 rodadas: primeiro a 3
 
@@ -431,7 +432,7 @@
          Cada pistoleiro tem altura, chapéu, rosto, roupa e — contra o
          computador — velocidade e erro próprios de mira. */
       var CHARACTERS = [
-        { id:'billy', name:'Billy Poeira', trait:'Camisa vermelha, lenço azul no rosto, botas amarelas', h:1.00, hatStyle:'wide', beard:false, faceCover:true,
+        { id:'billy', name:'Billy Poeira', trait:'Camisa vermelha, lenço azul no rosto, calça jeans e botas de couro', h:1.00, hatStyle:'wide', beard:false, faceCover:true,
           skin:'#e2ac74', skinDark:'#c68d54', hair:'#4a2f1d', hat:'#8a6224', hatDark:'#6b4a18', band:'#203fa8',
           coat:'#c1271d', coatDark:'#8f1a14', vest:'#3a3a3a', shirt:'#f3e9d2', pants:'#c1271d', pantsDark:'#8f1a14', boots:'#e0aa1e',
           ai:{ react:600, interval:560, spread:58 } },
@@ -1895,7 +1896,7 @@
          cima — ficam alinhados com o boneco 3D. Se o WebGL falhar,
          o jogo avisa e continua no 2D (nunca tela preta).
          ============================================================ */
-      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0, bursts:[], burstLast:0, glbCache:{}, glbInfo:{}, useGLB:false, glbFailed:false };
+      var GL = { ok:false, scene:null, camera:null, renderer:null, rigs:{}, dust:null, dustSpeed:null, dustLast:0, bursts:[], burstLast:0, glbCache:{}, glbInfo:{}, useGLB:false, glbFailed:{}, glbOK:{}, glbErrs:[], lastGLBErr:null };
       var S3 = 1 / 80; // 1 unidade de mundo = 80 px do palco 2D
       function wX3(px){ return (px - 480) * S3; }
       function wY3(py, hh){ return (GROUND - py) * (hh || 1) * S3; }
@@ -2037,6 +2038,29 @@
       function sph3(r, material){
         var m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), material);
         m.castShadow = true; return m;
+      }
+      // poça de sangue com volume: vários borrões sobrepostos e
+      // gotas ao redor, em vez de um círculo plano — o sangue tem
+      // espessura (esferas achatadas) e brilho de líquido
+      function makeBloodPool3D(){
+        var g = new THREE.Group();
+        var mat = new THREE.MeshStandardMaterial({ color: '#a11812', roughness: .25, metalness: 0, transparent: true, opacity: 0.88 });
+        var mat2 = new THREE.MeshStandardMaterial({ color: '#7d0f0a', roughness: .3, metalness: 0, transparent: true, opacity: 0.9 });
+        var blobs = [
+          [0, 0, 0.55, 0.32, mat], [0.35, 0.05, 0.34, 0.22, mat], [-0.38, -0.04, 0.30, 0.20, mat],
+          [0.10, -0.22, 0.26, 0.18, mat2], [-0.15, 0.22, 0.24, 0.16, mat2], [0.55, -0.12, 0.18, 0.12, mat2],
+          [-0.55, 0.14, 0.16, 0.11, mat], [0.72, 0.18, 0.10, 0.07, mat2], [-0.72, -0.18, 0.09, 0.06, mat],
+          [0.28, 0.32, 0.09, 0.06, mat2], [-0.30, -0.32, 0.08, 0.05, mat]
+        ];
+        blobs.forEach(function(b){
+          var m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), b[4]);
+          m.scale.set(b[2], 0.035, b[3]);
+          m.position.set(b[0], 0.012, b[1]);
+          m.castShadow = false; m.receiveShadow = true;
+          g.add(m);
+        });
+        g.visible = false;
+        return g;
       }
       function sphU3(material){ // esfera unitária (raio 1), para as barrigas de músculo
         var m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), material);
@@ -2461,9 +2485,7 @@
         }
         P.guitarG = guitarG;
         // poça de sangue no chão (só aparece caído ou morto)
-        var blood = new THREE.Mesh(new THREE.CircleGeometry(0.55, 20), new THREE.MeshStandardMaterial({ color: '#b31e18', roughness: .6, metalness: 0, transparent: true, opacity: 0.75 }));
-        blood.rotation.x = -Math.PI / 2; blood.scale.set(1.5, 0.55, 1); blood.visible = false;
-        blood.receiveShadow = true;
+        var blood = makeBloodPool3D();
         GL.scene.add(blood); P.blood = blood;
         // membros e mãos vão direto no grupo raiz (o tronco, o cinto e a
         // cabeça já foram adicionados acima, cada um no seu lugar)
@@ -2542,7 +2564,7 @@
       // modelos (mesmo esqueleto).
       var GLB_CLOSE_UL = { L: new THREE.Quaternion(0.0690, -0.0015, 0.0214, 0.9974), R: new THREE.Quaternion(0.0080, -0.0006, 0.1595, 0.9872) };
       var GLB_CLOSE_F = { L: new THREE.Quaternion(0.0126, 0.0699, -0.0131, 0.9974), R: new THREE.Quaternion(-0.1594, -0.0073, 0.0057, 0.9872) };
-      var _gv1 = new THREE.Vector3(), _gv2 = new THREE.Vector3(), _gv3 = new THREE.Vector3(), _gv4 = new THREE.Vector3();
+      var _gv1 = new THREE.Vector3(), _gv2 = new THREE.Vector3(), _gv3 = new THREE.Vector3(), _gv4 = new THREE.Vector3(), _gv5 = new THREE.Vector3(), _gv6 = new THREE.Vector3();
       var _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gq3 = new THREE.Quaternion(), _gq4 = new THREE.Quaternion(), _gq5 = new THREE.Quaternion();
       // o esqueleto do modelo não é anatômico: a coxa é filha do corpo
       // (não do quadril) e o pé é filho da raiz (não da canela) — sem
@@ -2566,15 +2588,44 @@
         reparent('FootR', 'LowerLegR');
         scene.updateMatrixWorld(true);
       }
+      // estado do carregamento dos modelos 3D, na tela e no console
+      // (nunca mais falha em silêncio): mostra Billy ✓/✗ e Buster ✓/✗;
+      // some sozinho depois de 5 s quando os dois carregam, e fica
+      // visível quando algum falha — o jogo segue com o boneco simples
+      // só naquele personagem
+      function glbStatus(){
+        var el = document.getElementById('glbMsg');
+        if (!el) return;
+        var anyFail = !!(GL.glbFailed.billy || GL.glbFailed.buster);
+        var parts = ['billy', 'buster'].map(function(id){
+          var nm = id === 'billy' ? 'Billy' : 'Buster';
+          return nm + ' ' + (GL.glbOK[id] ? '✓' : (GL.glbFailed[id] ? '✗' : '…'));
+        });
+        el.textContent = 'Modelos 3D: ' + parts.join(' · ') + (anyFail ? ' — boneco simples no lugar' : '');
+        el.style.display = 'block';
+        if (GL.glbOK.billy && GL.glbOK.buster && !anyFail){
+          setTimeout(function(){ if (el) el.style.display = 'none'; }, 5000);
+        }
+      }
       function loadGLBModels(){
         if (typeof fetch !== 'function' || typeof GLTFLoader === 'undefined') return;
         var loader = new GLTFLoader();
-        ['billy','buster'].forEach(function(id){
-          // tenta o modelo novo; se falhar (rede, arquivo, parse),
-          // tenta o modelo anterior (Quaternius) uma vez; se esse
-          // também falhar, o jogo segue com os rigs procedurais
-          (function tryLoad(url, isFallback){
-            fetch(url).then(function(r){
+        // falha de um modelo: registra, mostra no console e na tela,
+        // tenta o modelo de reserva (-q) uma vez; se esse também falhar,
+        // só aquele personagem usa o boneco procedural (o outro continua 3D)
+        function glbFail(id, kind, e, isFallback){
+          var _m = id + ' ' + kind + ': ' + (e && e.stack ? String(e.stack).split('\n').slice(0,3).join(' | ') : (e && e.message ? e.message : e));
+          GL.glbErrs.push(_m);
+          GL.lastGLBErr = _m;
+          if (typeof console !== 'undefined' && console.error) console.error('[Duelo 1v1] modelo 3D falhou —', _m);
+          if (!isFallback && GLB_FALLBACK_FILE[id]){ glbStatus(); tryLoad(id, GLB_FALLBACK_FILE[id], true); }
+          else { GL.glbFailed[id] = true; glbStatus(); }
+        }
+        // tenta o modelo novo; se falhar (rede, arquivo, parse),
+        // tenta o modelo anterior (Quaternius) uma vez; se esse
+        // também falhar, só aquele personagem usa o boneco procedural
+        function tryLoad(id, url, isFallback){
+          fetch(url).then(function(r){
               if (!r.ok) throw new Error('HTTP ' + r.status);
               return r.arrayBuffer();
             }).then(function(buf){
@@ -2620,11 +2671,16 @@
                 if (o.isBone && info.restLocal[o.name]) o.position.copy(info.restLocal[o.name]);
               });
               gltf.scene.updateMatrixWorld(true);
-              if (GL.glbCache.billy && GL.glbCache.buster) GL.useGLB = true;
-              } catch (e){ var _m = id + ' cb: ' + (e && e.stack ? e.stack.split('\n').slice(0,4).join(' | ') : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; }
-            }, function(e){ var _m = id + ' parse: ' + (e && e.message ? e.message : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; });
-          }).catch(function(e){ var _m = id + ' fetch: ' + (e && e.message ? e.message : e); (GL.glbErrs = GL.glbErrs || []).push(_m); GL.lastGLBErr = _m; if (!isFallback && GLB_FALLBACK_FILE[id]) tryLoad(GLB_FALLBACK_FILE[id], true); else GL.glbFailed = true; });
-          })(GLB_MODEL_FILE[id], false);
+              GL.glbOK[id] = true;
+              GL.useGLB = !!(GL.glbOK.billy && GL.glbOK.buster);
+              glbStatus();
+              } catch (e){ glbFail(id, 'cb', e, isFallback); }
+            }, function(e){ glbFail(id, 'parse', e, isFallback); });
+          }).catch(function(e){ glbFail(id, 'fetch', e, isFallback); });
+        }
+        glbStatus();
+        ['billy','buster'].forEach(function(id){
+          tryLoad(id, GLB_MODEL_FILE[id], false);
         });
       }
       // informação do modelo em espaço local (antes de qualquer
@@ -2764,6 +2820,35 @@
         if (info.restLocal['Neck']) info.restLocal['Neck'].z = 0;
         if (info.restDir['Neck']) info.restDir['Neck'].set(0, 1, 0);
         if (bones.FootL) info.ankleH = Math.max(0, info.restPos.FootL.y);
+        // altura da sola do pé acima da origem do modelo: o modelo
+        // MPFB tem a origem ~0,20 abaixo dos pés, e o osso Root fica
+        // na origem (y=0). Sem descontar isso, o chão é calculado no
+        // osso mais baixo e os pés flutuam ~0,30 acima do chão.
+        var groundY = Infinity;
+        scene.traverse(function(o){
+          if ((o.isSkinnedMesh || o.isMesh) && o.geometry){
+            var gg = o.geometry;
+            if (!gg.boundingBox) gg.computeBoundingBox();
+            if (gg.boundingBox){
+              var mn = gg.boundingBox.min.clone().applyMatrix4(o.matrixWorld);
+              if (mn.y < groundY) groundY = mn.y;
+            }
+          }
+        });
+        if (groundY === Infinity) groundY = 0;
+        info.groundY = groundY;
+        // distância do osso mais baixo (em repouso) até a sola: é o
+        // quanto o osso fica acima da superfície do corpo. Limitada a
+        // 0,10 — na pose de repouso o pé está apontado/enrolado e o
+        // osso do dedão fica 0,30 acima da sola; com o pé chapado no
+        // chão (parado, andando, deitado) a distância real é ~0,10.
+        // Sem o limite, os pés flutuam ~0,30 acima do chão.
+        var minBoneY = Infinity;
+        names.forEach(function(n){
+          if (n === 'Root' || n === 'Body') return;
+          if (info.restPos[n] && info.restPos[n].y < minBoneY) minBoneY = info.restPos[n].y;
+        });
+        info.boneToGround = (minBoneY === Infinity) ? 0 : Math.min(0.10, Math.max(0, minBoneY - groundY));
         return info;
       }
       // chapéu do jogo (o do Buster): copa com vinco, aba com borda
@@ -2926,9 +3011,7 @@
         var gun = makeRevolver3D();
         P.gunG = gun.group; P.hammerPivot = gun.hammerPivot; P.drumSpin = gun.drumSpin;
         group.add(P.gunG);
-        var blood = new THREE.Mesh(new THREE.CircleGeometry(0.55, 20), new THREE.MeshStandardMaterial({ color: '#b31e18', roughness: .6, metalness: 0, transparent: true, opacity: 0.75 }));
-        blood.rotation.x = -Math.PI / 2; blood.scale.set(1.5, 0.55, 1); blood.visible = false;
-        blood.receiveShadow = true;
+        var blood = makeBloodPool3D();
         GL.scene.add(blood); P.blood = blood;
         // o modelo olha para o seu eixo F; o grupo interno gira esse
         // eixo para a tela (para a direita de quem joga, ou para a
@@ -2941,6 +3024,25 @@
         var rigBones = {};
         clone.traverse(function(o){ if (o.isBone) rigBones[o.name] = o; });
         group.traverse(function(o){ if (o.isMesh) o.castShadow = true; });
+        // lenço azul do Billy cobrindo nariz e boca (no rig procedural
+        // ele já existe; no GLB o rosto é o do modelo). Só no modelo
+        // MPFB (sem osso 'Body'): no Quaternius de reserva o lenço não
+        // tem posicionamento por quadro e ficaria parado na origem.
+        // O lenço é filho do grupo (não do osso): a posição é
+        // recalculada por quadro junto com o chapéu, a partir da
+        // cabeça — preso ao osso, o deslocamento local era multiplicado
+        // pela escala do modelo e o lenço caía no pescoço ou tapava os olhos.
+        if (colors.faceCover && !rigBones['Body']){
+          var bandMat = mat3(colors.band, .85, 0, 'cloth');
+          var bandana = sph3(0.13, bandMat);
+          bandana.scale.set(1.15, 0.46, 0.23);
+          bandana.castShadow = false; bandana.userData.noShadow = true;
+          group.add(bandana);
+          var knot = box3(0.05, 0.045, 0.045, bandMat);
+          knot.castShadow = false; knot.userData.noShadow = true;
+          group.add(knot);
+          P.bandana = bandana; P.bandanaKnot = knot;
+        }
         GL.scene.add(group);
         // os modelos MPFB (sem osso 'Body') usam os clips embutidos
         // (mocap retargetado + quadros a mão); o modelo de reserva
@@ -3166,11 +3268,15 @@
         var g = C.g;
         rig.inner.position.x = 0; rig.inner.position.z = 0;
         if (jumpL <= 0.001){
+          // o osso mais baixo NÃO é a sola do pé: a origem do modelo
+          // fica abaixo dos pés e o osso Root fica na origem (y=0).
+          // Sem excluir o Root e sem descontar a distância
+          // osso→sola, os pés flutuam ~0,30 acima do chão.
           var minY = Infinity;
-          Object.keys(pos).forEach(function(n){ if (pos[n].y < minY) minY = pos[n].y; });
+          Object.keys(pos).forEach(function(n){ if (n === 'Root' || n === 'Body') return; if (pos[n].y < minY) minY = pos[n].y; });
           if (minY !== Infinity){
             var sy = g.scale.y || 1;
-            rig.inner.position.y = (0.02 - g.position.y) / sy - minY * info.scale;
+            rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - (info.boneToGround || 0)) * info.scale;
           }
         }
         // --- rotação do grupo (balanço do andar + tombo da perna) ---
@@ -3184,6 +3290,31 @@
           P.hatG.position.set(headG.x, headG.y + info.hatLift * info.scale, headG.z);
           var headUp = _gv4.set(0, 1, 0).applyQuaternion(W['Head'] || info.restQuat['Head']).applyQuaternion(rig.innerQuat);
           P.hatG.rotation.z = -Math.atan2(headUp.x, headUp.y) - fwd * 0.04;
+        }
+        // lenço azul do Billy: cobre nariz e boca, sem tapar os olhos.
+        // Posição por quadro, a partir da cabeça (como o chapéu): à
+        // frente do rosto e um pouco abaixo do osso da cabeça, virado
+        // para a direção do rosto; o nó fica atrás da cabeça.
+        if (P.bandana){
+          var headG2 = glbToGroup(rig, innerPos, pos.Head, _gv3);
+          var headUp2 = _gv4.set(0, 1, 0).applyQuaternion(W['Head'] || info.restQuat['Head']).applyQuaternion(rig.innerQuat);
+          var relQ = _gq1.copy(W['Head'] || info.restQuat['Head']).multiply(_gq2.copy(info.restQuat['Head'] || new THREE.Quaternion()).invert());
+          var faceFwd = _gv5.copy(info.fwd).applyQuaternion(relQ).applyQuaternion(rig.innerQuat);
+          // o osso da cabeça fica na altura dos olhos: a boca está só
+          // ~0,07 abaixo dele — o lenço desce 0,07 e cobre nariz e boca
+          P.bandana.position.set(
+            headG2.x + faceFwd.x * 0.10 - headUp2.x * 0.07,
+            headG2.y + faceFwd.y * 0.10 - headUp2.y * 0.07,
+            headG2.z + faceFwd.z * 0.10 - headUp2.z * 0.07);
+          P.bandana.quaternion.setFromUnitVectors(_gv6.set(0, 0, 1), faceFwd);
+          P.bandana.visible = true;
+          if (P.bandanaKnot){
+            P.bandanaKnot.position.set(
+              headG2.x - faceFwd.x * 0.12 - headUp2.x * 0.06,
+              headG2.y - faceFwd.y * 0.12 - headUp2.y * 0.06,
+              headG2.z - faceFwd.z * 0.12 - headUp2.z * 0.06);
+            P.bandanaKnot.visible = true;
+          }
         }
         var wristG = glbToGroup(rig, innerPos, pos['Wrist' + gunSide], _gv3);
         var foreDir = _gv4.copy(pos['Wrist' + gunSide]).sub(pos['LowerArm' + gunSide]).normalize().applyQuaternion(rig.innerQuat);
@@ -3445,7 +3576,7 @@
       function updateFig3D(side, cx, flip, colors, angle, now, seed, hatOff, extra){
         if (!GL.ok) return;
         var rig = GL.rigs[side];
-        var wantGLB = GL.useGLB && !!GL.glbCache[colors.id];
+        var wantGLB = !!GL.glbOK[colors.id] && !!GL.glbCache[colors.id];
         if (!rig || rig.charId !== colors.id || (wantGLB && !rig.glb) || (!wantGLB && rig.glb)){
           if (rig){ GL.scene.remove(rig.group); if (rig.parts.blood) GL.scene.remove(rig.parts.blood); }
           rig = GL.rigs[side] = wantGLB ? buildGLBRig(colors, flip) : buildFigRig(colors, flip);
