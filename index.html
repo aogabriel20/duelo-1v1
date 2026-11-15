@@ -819,6 +819,17 @@
         if (nowA < armUntil){
           a += Math.sin(nowA / 34) * .021 + Math.sin(nowA / 13.7) * .013;
         }
+        // tonto (tiro na cabeça ou no peito): a mira balança devagar e
+        // largo, como quem cambaleia — some aos poucos até o fim
+        var dizUntil = side === 'you' ? G.dizzyYouUntil : G.dizzyOppUntil;
+        var dizAt = side === 'you' ? G.dizzyYouAt : G.dizzyOppAt;
+        var dizAmp = side === 'you' ? (G.dizzyAmpYou || 0) : (G.dizzyAmpOpp || 0);
+        if (dizUntil && nowA < dizUntil && dizAmp > 0){
+          var dizTotal = dizUntil - (dizAt || nowA);
+          var dk = dizTotal > 0 ? (dizUntil - nowA) / dizTotal : 0;
+          var damp = dizAmp * dk;
+          a += Math.sin(nowA / 240) * damp + Math.sin(nowA / 97) * damp * 0.6;
+        }
         return a;
       }
       // Altura em que o seu tiro cruza o lado do oponente, seguindo a
@@ -903,6 +914,9 @@
         } else if (zone === 'chest' || zone === 'body'){
           // tiro no peito: o peito recua, o corpo é empurrado para trás
           setStagger(targetSide, now, 520);
+          // mira instável por um instante (o peito empurrado desalinha o braço)
+          if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 700; G.dizzyAmpYou = 0.04; }
+          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 700; G.dizzyAmpOpp = 0.04; }
           addText(targetX, 210, 'No peito!', '#e8a33d');
         } else if (zone === 'belly'){
           // tiro na barriga: o corpo dobra para frente, depois recua
@@ -912,6 +926,10 @@
           // tiro na cabeça: além do chapéu voando, atordoa — não consegue atirar por um instante
           setStagger(targetSide, now, 700);
           if (targetSide === 'you') G.stunYouUntil = now + 800; else G.stunOppUntil = now + 800;
+          // mira tonta/balançando por ~1,5 s (cambaleia): balanço lento e
+          // grande, bem diferente do tremor rápido do braço ferido
+          if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 1500; G.dizzyAmpYou = 0.08; }
+          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 1500; G.dizzyAmpOpp = 0.08; }
         }
       }
 
@@ -2752,6 +2770,18 @@
           var d = new THREE.Vector3(ec.x - hp.x, 0, ec.z - hp.z);
           if (d.lengthSq() > 0.0025) info.fwd = d.normalize();
         }
+        // pitch de repouso do pé (tornozelo→dedo, no plano sagital):
+        // é a orientação "sola no chão" do modelo (~-29°: o dedo fica
+        // abaixo do tornozelo). O achatamento dinâmico do pé em
+        // glbDriveState usa isto como alvo — sem ele, o pé virava
+        // (medido -106° no agachar: a sola para a câmera, o boneco
+        // parecia de joelhos com o pé pendurado).
+        info.restFootPitch = -0.5;
+        if (info.restPos.FootR && info.restPos.PTR){
+          var _fd = new THREE.Vector3().subVectors(info.restPos.PTR, info.restPos.FootR);
+          var _ff = _fd.x * info.fwd.x + _fd.z * info.fwd.z;
+          if (Math.abs(_ff) > 0.02) info.restFootPitch = Math.atan2(_fd.y, _ff);
+        }
         // altura do chapéu medida no modelo: do osso da cabeça até o
         // topo da malha, menos 0,08 para a aba assentar na cabeça
         // (mesma folga do modelo anterior)
@@ -3171,26 +3201,48 @@
       // tocam juntos no crossfade — se qualquer um animar o osso, o
       // mixer o repõe). Chamar TODO quadro, com ângulo 0 quando o
       // efeito está desligado, para a dobra voltar a zero.
+      // dobra um osso sem acumular — e sem depender de o mixer repor o
+      // osso. O mixer do three.js só ESCREVE o osso quando o valor
+      // acumulado mudou desde o quadro anterior (PropertyMixer.apply
+      // compara os dois buffers e pula o setValue quando são iguais).
+      // Nos clips com trilhas constantes (idle de mocap: 2 keyframes
+      // idênticos nos dedos, braços e pernas; crouch: 2 keyframes
+      // idênticos), o mixer para de escrever o osso depois do 2º quadro
+      // — e a dobra de ângulo cheio, aplicada todo quadro, ACUMULAVA:
+      // dedo girando 21,5°/quadro, antebraço livre 17°/quadro, coxa
+      // 40°/quadro e canela 71°/quadro no agachar (medido no harness).
+      // É o tremor das mãos, o braço rodando e o "ficar de joelhos".
+      // A correção: depois de mixer.update, compara o quaternion do
+      // osso com o de antes (sm._mixWrote): se o mixer escreveu, o osso
+      // está na pose do clip e a dobra é o ângulo cheio; se não escreveu,
+      // o osso ainda tem a dobra do quadro anterior e só entra a VARIAÇÃO.
       function glbBend(rig, boneName, axis, angle){
         var b = rig.bones && rig.bones[boneName];
         if (!b) return;
         var sm = rig.sm;
-        var tracked = false;
-        var base = rig.baseClip;
-        var os = sm && sm.oneShot && sm.oneShot.name;
-        if (base && glbClipBones(rig, base)[boneName]) tracked = true;
-        if (!tracked && os && glbClipBones(rig, os)[boneName]) tracked = true;
-        if (tracked){
-          b.quaternion.multiply(_gq1.setFromAxisAngle(axis, angle));
-          if (sm){ if (!sm._bend) sm._bend = {}; sm._bend[boneName] = angle; }
-        } else {
-          if (!sm) return;
-          if (!sm._bend) sm._bend = {};
-          var prev = sm._bend[boneName] || 0;
-          var d = angle - prev;
-          if (Math.abs(d) > 0.0005) b.quaternion.multiply(_gq1.setFromAxisAngle(axis, d));
-          sm._bend[boneName] = angle;
+        if (!sm) return;
+        if (!sm._bend) sm._bend = {};
+        // a dobra é por osso E por eixo: o mesmo osso pode dobrar em X
+        // (inclinar para a frente) e em Y (torcer para o lado) no mesmo
+        // quadro — guardar um único ângulo por osso misturava os eixos
+        // (a torção do peito comia a inclinação e vice-versa).
+        var axKey = (axis === AX_X) ? 'X' : (axis === AX_Y) ? 'Y' : 'Z';
+        var per = sm._bend[boneName];
+        if (!per) per = sm._bend[boneName] = {};
+        if (sm._mixWrote && sm._mixWrote[boneName]){
+          // o mixer repôs o osso: TODAS as dobras voltam do zero
+          per.X = 0; per.Y = 0; per.Z = 0;
         }
+        var prev = per[axKey] || 0;
+        var d = angle - prev;
+        if (Math.abs(d) > 0.0005){
+          b.quaternion.multiply(_gq1.setFromAxisAngle(axis, d));
+          // o multiply não normaliza: sem isto, o erro de ponto flutuante
+          // acumula e o quaternion perde o comprimento 1 (medido 0,9995
+          // após poucos segundos), o que vira escala/cisalhamento sutil
+          b.quaternion.normalize();
+        }
+        per[axKey] = angle;
       }
       // enrola os dedos de uma mão (pós-processo sobre o clip): os
       // clips de mocap (idle/walk/run/wave) deixam a mão neutra e
@@ -3322,7 +3374,23 @@
             glbSetBaseClip(rig, 'death', 0.2, dStart);
           } else glbSetBaseClip(rig, base, 0.25);
         }
+        // foto dos quaternions antes do mixer, para saber quais ossos ele
+        // realmente reescreveu neste quadro (ver glbBend): compara depois
+        var _smSnap = sm._snapQ || (sm._snapQ = {});
+        var _bn, _bb;
+        for (_bn in rig.bones){
+          _bb = rig.bones[_bn];
+          if (!_bb) continue;
+          if (!_smSnap[_bn]) _smSnap[_bn] = new THREE.Quaternion();
+          _smSnap[_bn].copy(_bb.quaternion);
+        }
         if (rig.mixer) rig.mixer.update(dt3);
+        var _mw = sm._mixWrote || (sm._mixWrote = {});
+        for (_bn in rig.bones){
+          _bb = rig.bones[_bn];
+          if (!_bb || !_smSnap[_bn]) continue;
+          _mw[_bn] = !_bb.quaternion.equals(_smSnap[_bn]);
+        }
         // --- mira (rampa suave para o alvo; no saque, entra aos poucos) ---
         var effAim = aimTarget;
         if (sm.oneShot && sm.oneShot.name.indexOf('draw_') === 0){
@@ -3351,36 +3419,81 @@
           // cima dobrava o morto no meio (o harness mediu quadril
           // 0,832, cabeça 0,376, dx=0 — corpo dobrado na vertical).
           var pushX = C.SP.push.x, snapX = C.SP.headSnap.x;
-          var lean = 0, snap = 0, swing = 0;
+          var fold = C.fold || 0; // dobra da barriga (0..1 dobra, -0,7 recuo)
+          var lean = 0, snap = 0, swing = 0, flailS = 0;
           if (poseW > 0.01){
             if (Math.abs(pushX) > 0.004) lean = fwd * pushX * 0.8;
             if (Math.abs(snapX) > 0.02) snap = -snapX * 0.12;
             if (Math.abs(C.SP.armSwing.x) > 0.02) swing = C.SP.armSwing.x * 0.06;
+            if (Math.abs(C.SP.flail.x) > 0.02) flailS = C.SP.flail.x * 0.08;
           }
+          // a arma despenca quando o braço é atingido: o cotovelo dobra
+          // mais e o ombro da arma cai (a mira treme junto, em aimAngleFor)
+          var gunDroop = Math.abs(C.SP.armSwing.x) * 0.25;
           // cada osso é dobrado UMA vez por quadro, com o ângulo total
           // (glbBend guarda o último valor aplicado — chamar com 0
           // quando o efeito desliga devolve o osso). A cabeça soma
-          // olhar (0,06) + inclinação do tiro (1,4x) + chicote.
-          glbBend(rig, 'LowerArm' + gunSide, AX_X, 0.28 * poseW);
+          // olhar (0,06) + inclinação do tiro (1,8x) + chicote (1,5x).
+          // A dobra da barriga (fold) não existia no caminho GLB: o
+          // peito/abdômen dobram para a frente, a mão livre vai para a
+          // barriga e a arma despenca — antes só o clip hit_belly, que
+          // é sutil demais sozinho.
+          // CORREÇÃO (direção da barriga): o empurrão (lean) jogava
+          // cabeça e peito para TRÁS e vencia a dobra — o harness
+          // mediu cabeça -0,034 (para trás) e -0,120 de altura no
+          // tiro na barriga, ou seja, um arqueio para trás, não uma
+          // dobra para a frente. Enquanto dobra (fold > 0), o lean
+          // para trás é suprimido em 85% e a dobra comanda: cabeça
+          // acompanha para a frente (queixo no peito), peito e
+          // abdômen dobram forte. No recuo (fold < 0) o corpo volta
+          // a arquear para trás, normal. Cabeça/peito não mudam
+          // (fold = 0 fora da barriga).
+          var foldF = Math.max(0, fold);
+          var leanEff = lean * (foldF > 0.05 ? 0.15 : 1);
+          glbBend(rig, 'LowerArm' + gunSide, AX_X, 0.28 * poseW + gunDroop);
           glbBend(rig, 'Wrist' + gunSide, AX_X, -0.28 * poseW);
-          glbBend(rig, 'LowerArm' + supSide, AX_X, 0.30 * poseW);
-          glbBend(rig, 'LowerLegL', AX_X, 0.15 * poseW + 1.1 * cr);
-          glbBend(rig, 'LowerLegR', AX_X, 0.15 * poseW + 1.1 * cr);
-          // agachar de verdade: o clip crouch sozinho quase não desce
-          // (a cabeça cai só ~0,07 — o usuário tem razão, não parece
-          // agachar). A dobra das pernas baixa o quadril em relação
-          // aos pés: a coxa vai para a frente (0,7) e a canela volta
-          // (1,1) — o pé fica plano e no chão, sem a correção de chão
-          // cancelar (não se baixa Hips.position.y: o quadril é pai
-          // das pernas, baixar ele baixa os pés e a correção sobe o
-          // corpo de volta). Cabeça desce de ~2,83 para ~2,2.
-          glbBend(rig, 'UpperLegL', AX_X, 0.7 * cr);
-          glbBend(rig, 'UpperLegR', AX_X, 0.7 * cr);
-          glbBend(rig, 'FootL', AX_X, -0.5 * cr);
-          glbBend(rig, 'FootR', AX_X, -0.5 * cr);
-          glbBend(rig, 'Head', AX_X, 0.06 * poseW + lean * 1.4 + snap);
-          glbBend(rig, 'Chest', AX_X, lean * 1.2);
-          glbBend(rig, 'Shoulder' + supSide, AX_Z, swing);
+          glbBend(rig, 'LowerArm' + supSide, AX_X, 0.30 * poseW + Math.abs(C.SP.flail.x) * 0.1 + fold * 0.4);
+          glbBend(rig, 'LowerLegL', AX_X, 0.15 * poseW + 1.0 * cr);
+          glbBend(rig, 'LowerLegR', AX_X, 0.15 * poseW + 1.0 * cr);
+          // agachar de verdade (agachamento, não joelhos): o clip
+          // crouch sozinho quase não desce (a cabeça cai só ~0,07).
+          // Ângulos medidos no harness (o AX_X das pernas é invertido:
+          // negativo leva o joelho para a frente): coxa -0,55 (joelho
+          // para a frente sobre os dedos), canela +1,0 (o tornozelo
+          // volta para trás do joelho, a canela inclina para trás —
+          // não horizontal como antes, quando parecia ajoelhado). O pé
+          // NÃO tem dobra fixa aqui — o achatamento dinâmico abaixo
+          // mede o pitch tornozelo→dedo e deixa a sola no chão.
+          // O tronco inclina um pouco para a frente (+0,2) e a cabeça
+          // compensa (-0,15) para continuar olhando o oponente.
+          // Não se baixa Hips.position.y: o quadril é pai das pernas,
+          // baixar ele baixa os pés e a correção de chão sobe o corpo
+          // de volta. Cabeça desce de ~2,83 para ~2,2.
+          glbBend(rig, 'UpperLegL', AX_X, -0.55 * cr);
+          glbBend(rig, 'UpperLegR', AX_X, -0.55 * cr);
+          glbBend(rig, 'Head', AX_X, 0.06 * poseW + leanEff * 1.8 + snap * 1.5 + foldF * 0.6 - 0.15 * cr);
+          glbBend(rig, 'Chest', AX_X, leanEff * 1.6 + 0.2 * cr + fold * 0.7);
+          glbBend(rig, 'Abdomen', AX_X, fold * 0.5);
+          // torção do quadril e do peito no impacto: o corpo gira um
+          // pouco para o lado do tiro e dá um passo para se equilibrar
+          // (o passo em si já existe: o grupo desliza com SP.push)
+          glbBend(rig, 'Hips', AX_Y, lean * 0.7);
+          glbBend(rig, 'Chest', AX_Y, lean * 0.9);
+          // braço livre: o flail joga para fora; na barriga, a mão vai para a barriga
+          glbBend(rig, 'Shoulder' + supSide, AX_Z, flailS);
+          glbBend(rig, 'Shoulder' + supSide, AX_X, fold * 0.3);
+          // braço da arma: o swing (antes no braço LIVRE, errado) joga
+          // o braço da arma para o lado e a arma despenca. O ombro da
+          // arma é reescrito TODO quadro por glbApplyAim (a mira),
+          // então a dobra aqui é multiplicada direto (ângulo cheio, sem
+          // delta) — glbBend acumularia ou zeraria errado.
+          var _gs = rig.bones['Shoulder' + gunSide];
+          if (_gs && poseW > 0.01){
+            if (Math.abs(swing) > 0.0005) _gs.quaternion.multiply(_gq1.setFromAxisAngle(AX_Z, swing));
+            var _gd = gunDroop + fold * 0.3;
+            if (Math.abs(_gd) > 0.0005) _gs.quaternion.multiply(_gq1.setFromAxisAngle(AX_X, _gd));
+            _gs.quaternion.normalize();
+          }
           // dedos: a mão da arma segura o cabo (sempre, pois o
           // revólver está na mão); a mão livre relaxa com a mira
           gripFingers(rig, gunSide, 0.5 + 0.5 * sm.aimW);
@@ -3389,6 +3502,35 @@
         // a postura mudou os ossos: recalcula as posições para o chão e os adereços
         W = glbCurrentWorld(rig);
         pos = glbCurrentPos(rig, W);
+        // --- pé plano (sola no chão, pontas para baixo) ---
+        // A dobra da perna (coxa/canela) gira o pé junto; uma dobra
+        // fixa no pé nunca acerta (o agachar antigo media -106°: o pé
+        // virava para trás, sola para a câmera, e o boneco parecia de
+        // joelhos com o pé pendurado). Aqui o pitch tornozelo→dedo é
+        // MEDIDO a cada quadro e o pé é dobrado até o pitch de repouso
+        // (info.restFootPitch, ~-29°, a sola no chão do modelo). A
+        // conta desconta a dobra que já está no osso (se o mixer não
+        // a apagou, ela já está no pitch medido — senão soma duas
+        // vezes). Vale em pé/andando/agachado; NÃO vale caído/morto
+        // (o clip ground_*/death posiciona os pés) nem no pulo (os
+        // pés balançam livres no ar).
+        if (rig.bones && situation !== 'ground' && situation !== 'dead' && jumpL <= 0.001){
+          var restPitch = (info.restFootPitch != null ? info.restFootPitch : -0.5);
+          ['L', 'R'].forEach(function(sd){
+            var ank = pos['Foot' + sd], toe = pos['PT' + sd];
+            if (!ank || !toe) return;
+            var fdx = (toe.x - ank.x) * info.fwd.x + (toe.z - ank.z) * info.fwd.z;
+            var pitchNow = Math.atan2(toe.y - ank.y, fdx);
+            var _pf = sm._bend['Foot' + sd];
+            var prevFoot = (sm._mixWrote && sm._mixWrote['Foot' + sd]) ? 0 : (_pf ? (_pf.X || 0) : 0);
+            var footBend = pitchNow + prevFoot - restPitch;
+            if (footBend > 1.2) footBend = 1.2;
+            if (footBend < -1.2) footBend = -1.2;
+            glbBend(rig, 'Foot' + sd, AX_X, footBend);
+          });
+          W = glbCurrentWorld(rig);
+          pos = glbCurrentPos(rig, W);
+        }
         // --- chão: o osso mais baixo encosta no chão (o corpo nunca flutua) ---
         // vale para a queda e para a morte: o corpo desce com gravidade
         // até o chão, sem congelar inclinado no ar (o defeito do print
@@ -3400,8 +3542,19 @@
           // fica abaixo dos pés e o osso Root fica na origem (y=0).
           // Sem excluir o Root e sem descontar a distância
           // osso→sola, os pés flutuam ~0,30 acima do chão.
+          // Em pé, só os pés/canelas valem como "chão": antes, qualquer
+          // osso (mão, arma, joelho girando) podia virar o mais baixo
+          // e a correção levantava o corpo inteiro ou perseguia o
+          // joelho — parte do tremor e do "ficar de joelhos". Caído
+          // ou morto, o corpo inteiro deita: aí vale qualquer osso
+          // (menos Root/Body) para o corpo não afundar no chão.
           var minY = Infinity;
-          Object.keys(pos).forEach(function(n){ if (n === 'Root' || n === 'Body') return; if (pos[n].y < minY) minY = pos[n].y; });
+          var upright = (situation !== 'ground' && situation !== 'dead');
+          Object.keys(pos).forEach(function(n){
+            if (n === 'Root' || n === 'Body') return;
+            if (upright && n !== 'FootL' && n !== 'FootR' && n !== 'PTL' && n !== 'PTR' && n !== 'LowerLegL' && n !== 'LowerLegR') return;
+            if (pos[n].y < minY) minY = pos[n].y;
+          });
           if (minY !== Infinity){
             var sy = g.scale.y || 1;
             rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - (info.boneToGround || 0)) * info.scale;
@@ -3755,10 +3908,16 @@
           rig.lastStaggerFrom = stFrom;
           var hz = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
           if (hz === 'body') hz = 'chest';
-          var mag = hz === 'head' ? 1.4 : hz === 'chest' ? 1.8 : hz === 'belly' ? 1.0 : hz === 'legs' ? 1.2 : 0.7;
+          // reação por região — cada uma com a sua força, para ler
+          // numa foto parada (antes era sutil demais: o HitRecieve
+          // quase não se move e o corpo deslizava como um bloco).
+          var mag = hz === 'head' ? 2.2 : hz === 'chest' ? 2.6 : hz === 'belly' ? 1.4 : hz === 'legs' ? 1.2 : 1.0;
           SP.push.v += -fwd * mag;                          // corpo empurrado para trás
-          if (hz === 'head') SP.headSnap.v += 6;             // cabeça chicoteia para trás
-          if (hz === 'arm') SP.armSwing.v += (Math.random() < .5 ? -1 : 1) * 4; // braço jogado para o lado
+          if (hz === 'head') SP.headSnap.v += 8;             // cabeça chicoteia para trás
+          if (hz === 'arm') SP.armSwing.v += (Math.random() < .5 ? -1 : 1) * 6; // braço jogado para o lado
+          // tiro no peito, na cabeça ou na barriga joga o braço LIVRE
+          // para fora (o corpo se abre no impacto)
+          if (hz === 'head' || hz === 'chest' || hz === 'belly') SP.flail.v += fwd * 2.5;
           if (hz === 'belly') rig.foldAt = stFrom;           // dobra para frente, depois recua
           rig.trigHit = hz; // gatilho da máquina de estados 3D (clip por região)
         }
@@ -3767,9 +3926,9 @@
           rig.lastDeathAt = dAt;
           var dz = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
           if (dz === 'body') dz = 'chest';
-          var dm = dz === 'head' ? 1.8 : dz === 'chest' ? 1.6 : dz === 'belly' ? 1.2 : 0.9;
+          var dm = dz === 'head' ? 2.2 : dz === 'chest' ? 2.0 : dz === 'belly' ? 1.5 : 0.9;
           SP.push.v += -fwd * dm;                             // morte: o corpo continua indo para trás
-          if (dz === 'head') SP.headSnap.v += 7;
+          if (dz === 'head') SP.headSnap.v += 9;
           rig.trigDeath = dz; // gatilho da máquina de estados 3D (clip de queda de morte)
         }
         // perna atingida: quando o corpo começa a cair, a perna da frente já
@@ -3850,7 +4009,7 @@
             // modelo humano (MPFB): a máquina de estados toca os clips
             // (mocap retargetado + quadros a mão); o amostrador 2D não
             // dirige mais os ossos — só a mira segue o mouse
-            glbDriveState(rig, { flip:flip, fwd:fwd, now:now, dt3:dt3, side:side, extra:extra, hpNow:hpNow, poseNow:poseNow, poseAtNow:poseAtNow, angle:angle, cx:cx, hatOff:hatOff, g:g, SP:SP, wsw:wsw, wph:wph, buckle:buckle });
+            glbDriveState(rig, { flip:flip, fwd:fwd, now:now, dt3:dt3, side:side, extra:extra, hpNow:hpNow, poseNow:poseNow, poseAtNow:poseAtNow, angle:angle, cx:cx, hatOff:hatOff, g:g, SP:SP, wsw:wsw, wph:wph, buckle:buckle, fold:fold });
             return;
           }
           // modelo de reserva (Quaternius): caminho antigo (amostrador + IK)
