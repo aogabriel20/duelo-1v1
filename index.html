@@ -535,10 +535,15 @@
       }
       function shellPing(){ beep(2100 + Math.random()*600, .07, 'triangle', .05); }
       function hitSound(){
-        // acerto: baque surdo no corpo + respingo curto, junto do estrondo do tiro
-        toneDrop(120, 52, .16, 'sine', .55);
-        noiseBurst(.09, 'lowpass', 900, .3);
-        noiseBurst(.14, 'bandpass', 1500, .12, .02, 1);
+        // acerto: estalo seco do projétil + baque curto do corpo. Antes era
+        // um seno puro grave (120→52 Hz) que soava oco, como bater numa
+        // caixa de papelão — agora o ataque é um estalo agudo (corta por
+        // cima do estrondo do tiro) e o grave é curto, em triângulo, sem
+        // a ressonância oca do seno.
+        noiseBurst(.05, 'highpass', 2600, .45);
+        noiseBurst(.07, 'bandpass', 1700, .4, 0, 1.2);
+        toneDrop(180, 65, .16, 'triangle', .5);
+        noiseBurst(.10, 'bandpass', 850, .3, .01, 0.9);
       }
       function countBeep(final){
         // contagem do vídeo: números com tique seco e curto; o FIRE! sobe e segura
@@ -4087,13 +4092,19 @@
           // reação por região — cada uma com a sua força, para ler
           // numa foto parada (antes era sutil demais: o HitRecieve
           // quase não se move e o corpo deslizava como um bloco).
-          var mag = hz === 'head' ? 2.2 : hz === 'chest' ? 2.6 : hz === 'belly' ? 1.4 : hz === 'legs' ? 1.2 : 1.0;
+          // REVISÃO v17 (o recuo não se via): o impulso era pequeno
+          // (2,6 m/s) e a mola mole (k=25, pico em ~300 ms) — o corpo
+          // derivava devagar ~30 px e assentava a 15 px. No vídeo o
+          // recuo é um soco: ~50 px em 2–4 quadros e fica deslocado.
+          // Agora o impulso é forte e a mola dura (k=150): o pico chega
+          // em ~130 ms e a cabeça vai mais que o tronco.
+          var mag = hz === 'head' ? 8.0 : hz === 'chest' ? 7.0 : hz === 'belly' ? 4.5 : hz === 'legs' ? 3.0 : 3.0;
           SP.push.v += -fwd * mag;                          // corpo empurrado para trás
           // recuo que fica: o corpo não volta todo para o lugar —
           // cada acerto empurra o "repouso" da mola para trás (no
           // vídeo, o boneco fica deslocado e o vão entre os dois
           // cresce ~10%). Cap para não sair do lugar do duelo.
-          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.15));
+          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.25));
           if (hz === 'head') SP.headSnap.v += 8;             // cabeça chicoteia para trás
           if (hz === 'arm') SP.armSwing.v += (Math.random() < .5 ? -1 : 1) * 6; // braço jogado para o lado
           // tiro no peito, na cabeça ou na barriga joga o braço LIVRE
@@ -4108,9 +4119,9 @@
           rig.lastDeathAt = dAt;
           var dz = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
           if (dz === 'body') dz = 'chest';
-          var dm = dz === 'head' ? 2.2 : dz === 'chest' ? 2.0 : dz === 'belly' ? 1.5 : 0.9;
+          var dm = dz === 'head' ? 6.0 : dz === 'chest' ? 5.5 : dz === 'belly' ? 4.0 : 2.5;
           SP.push.v += -fwd * dm;                             // morte: o corpo continua indo para trás
-          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.15)); // cai onde parou
+          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.25)); // cai onde parou
           if (dz === 'head') SP.headSnap.v += 9;
           rig.trigDeath = dz; // gatilho da máquina de estados 3D (clip de queda de morte)
         }
@@ -4118,12 +4129,12 @@
         // cedeu — o braço livre leva um impulso e balança como mola
         if (poseNow === 'fallen' && rig.lastPose !== 'fallen'){
           SP.flail.v += fwd * 3.5;
-          SP.push.v += -fwd * 0.8;
-          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.15)); // cai onde parou
+          SP.push.v += -fwd * 2.5;
+          SP.pushRest = Math.max(-0.5, Math.min(0.5, SP.pushRest - fwd * 0.25)); // cai onde parou
           rig.trigFall = true; // gatilho da máquina de estados 3D (perna cede e senta)
         }
         rig.lastPose = poseNow;
-        springStep(SP.push, SP.pushRest, dt3, 25, 7);
+        springStep(SP.push, SP.pushRest, dt3, 150, 12); // mola dura (v17): pico rápido, sem deriva lenta
         springStep(SP.headSnap, 0, dt3, 120, 10);
         springStep(SP.armSwing, 0, dt3, 90, 8);
         springStep(SP.flail, 0, dt3, 70, 6);
