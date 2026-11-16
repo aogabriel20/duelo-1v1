@@ -2808,7 +2808,7 @@
         scene.updateMatrixWorld(true);
         var bones = {};
         scene.traverse(function(o){ if (o.isBone) bones[o.name] = o; });
-        var info = { bones: bones, restDir: {}, restQuat: {}, restPos: {}, restLocal: {}, parent: {}, fwd: new THREE.Vector3(0, 0, 1), scale: 1, ankleH: 0.02, unitK: 1, hatLift: 0.22 };
+        var info = { bones: bones, restDir: {}, restQuat: {}, restPos: {}, restLocal: {}, restLocalQ: {}, parent: {}, fwd: new THREE.Vector3(0, 0, 1), scale: 1, ankleH: 0.02, unitK: 1, hatLift: 0.22 };
         var names = Object.keys(bones);
         var _v1 = new THREE.Quaternion(), _v2 = new THREE.Vector3();
         names.forEach(function(n){
@@ -2816,6 +2816,7 @@
           b.getWorldQuaternion(_v1); info.restQuat[n] = _v1.clone();
           b.getWorldPosition(_v2); info.restPos[n] = _v2.clone();
           info.restLocal[n] = b.position.clone();
+          info.restLocalQ[n] = b.quaternion.clone();
           info.parent[n] = (b.parent && b.parent.isBone) ? b.parent.name : null;
         });
         // os modelos MPFB não têm osso 'Body' (o código espera um nó
@@ -2825,6 +2826,7 @@
           info.restQuat.Body = info.restQuat.Root.clone();
           info.restPos.Body = info.restPos.Root.clone();
           info.restLocal.Body = new THREE.Vector3();
+          info.restLocalQ.Body = new THREE.Quaternion();
           info.parent.Body = 'Root';
           info.restDir.Body = new THREE.Vector3(0, 1, 0);
         }
@@ -3634,6 +3636,50 @@
           // revólver está na mão); a mão livre relaxa com a mira
           gripFingers(rig, gunSide, 0.5 + 0.5 * sm.aimW);
           gripFingers(rig, supSide, 0.35 * poseW);
+          // ENTRADA ANDANDO: o clip 'walk' do mocap gira os dois
+          // UpperArms ~90° do repouso (retarget CMU→MPFB), dobrando os
+          // cotovelos para dentro do peito e cruzando as mãos — os
+          // braços ficam "dentro do corpo" a andada inteira (medido no
+          // GLB: cotovelo a |x|~0,05 do centro, contra 0,34 no repouso;
+          // no Chromium, cotovelo/pulso dentro da caixa do tronco).
+          // Durante a andada (e nos 300 ms do crossfade de saída, para
+          // os braços não piscarem cruzados no fim), os braços são
+          // repostos à mão: pendurados ao lado do corpo (repouso) com
+          // um balanço suave contrário às pernas, medido pela passada
+          // dos pés no clip. A mira não atua aqui (aimW ~ 0) e o
+          // glbBend não conflita: o mixer reescreve os ossos todo
+          // quadro e o override vem depois dele, como o glbApplyAim.
+          if (walkP < 1) sm.walkEndAt = 0;
+          else if (!sm.walkEndAt) sm.walkEndAt = now;
+          var walkArm = (phase === 'countdown' || phase === 'fire') &&
+            (walkP < 1 || (sm.walkEndAt && (now - sm.walkEndAt) < 300));
+          if (walkArm && rig.info.restLocalQ){
+            var fL = pos['FootL'], fR = pos['FootR'];
+            var sw = 0;
+            if (fL && fR){
+              var fw = info.fwd || { x: 1, z: 0 };
+              sw = ((fL.x - fR.x) * fw.x + (fL.z - fR.z) * fw.z) * 0.5;
+              if (sw > 0.22) sw = 0.22; if (sw < -0.22) sw = -0.22;
+            }
+            ['L', 'R'].forEach(function(sd){
+              var ua = rig.bones['UpperArm' + sd];
+              var la = rig.bones['LowerArm' + sd];
+              var wr = rig.bones['Wrist' + sd];
+              var hd = rig.bones['Hand' + sd];
+              if (ua && rig.info.restLocalQ['UpperArm' + sd]){
+                // pé esquerdo à frente -> braço esquerdo para trás e
+                // direito para a frente (balanço contrário às pernas);
+                // +AX_X no braço é para trás (medido no esqueleto)
+                var sgn = sd === 'L' ? 1 : -1;
+                ua.quaternion.copy(rig.info.restLocalQ['UpperArm' + sd]);
+                ua.quaternion.multiply(_gq1.setFromAxisAngle(AX_X, sgn * sw));
+                ua.quaternion.normalize();
+              }
+              if (la && rig.info.restLocalQ['LowerArm' + sd]) la.quaternion.copy(rig.info.restLocalQ['LowerArm' + sd]);
+              if (wr && rig.info.restLocalQ['Wrist' + sd]) wr.quaternion.copy(rig.info.restLocalQ['Wrist' + sd]);
+              if (hd && rig.info.restLocalQ['Hand' + sd]) hd.quaternion.copy(rig.info.restLocalQ['Hand' + sd]);
+            });
+          }
         }
         // a postura mudou os ossos: recalcula as posições para o chão e os adereços
         W = glbCurrentWorld(rig);
