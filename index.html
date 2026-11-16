@@ -574,6 +574,7 @@
         winner: null,          // 'you' | 'opp' | 'draw'
         endHandled: false,
         deathGraceUntil: 0,    // janela da morte simultânea (empate): até quando o outro lado pode cair junto
+        deathGraceTimer: null, // temporizador que fecha a rodada quando a janela vence (mesmo sem quadro novo)
         oppName: 'Oponente',
         youName: 'Você',
         countT0: 0,            // instante local em que a contagem começa (relógio da partida)
@@ -1118,7 +1119,29 @@
           // outro também cair na janela, é empate; senão, quem ficou em
           // pé vence. Durante a janela a fase continua 'fire', então o
           // outro lado ainda pode dar o tiro que já estava fazendo.
-          if (!G.deathGraceUntil){ G.deathGraceUntil = now + 450; return; }
+          // CORREÇÃO (v15, empate demais): a janela era de 450 ms —
+          // maior que o intervalo mínimo de tiro da IA (280 ms) e que
+          // a reação dela (240 ms) — então o tiro de "vingança" da IA
+          // caía quase sempre dentro da janela e o empate virava
+          // rotina (14 em 20 trocas rápidas medidas). Agora são 200 ms:
+          // abaixo da reação mínima da IA (240 ms), então o tiro de
+          // vingança dela quase nunca cabe; só tiros de fato
+          // simultâneos (os dois já sacando juntos) empatam, e o
+          // empate volta a ser raro como no original. O empate
+          // legítimo continua: balas dos dois esgotadas, tempo
+          // esgotado, ou os dois caindo no mesmo instante.
+          if (!G.deathGraceUntil){
+            G.deathGraceUntil = now + 200;
+            // o checkEnd do loop só roda a cada quadro: num aparelho
+            // lento (ou com o quadro travado) a janela venceria sem
+            // ninguém notar e o tiro de vingança chegaria antes. O
+            // temporizador fecha a rodada na hora certa, mesmo sem
+            // quadro novo — e é inofensivo se a rodada já acabou
+            // (checkEnd não faz nada fora da fase 'fire').
+            if (G.deathGraceTimer) clearTimeout(G.deathGraceTimer);
+            G.deathGraceTimer = setTimeout(function(){ if (G.phase === 'fire') checkEnd(); }, 200);
+            return;
+          }
           if (now < G.deathGraceUntil) return;
           endRound(deadOpp ? 'you' : 'opp', true);
           return;
@@ -1208,6 +1231,7 @@
         G.deathYouAt = 0; G.deathOppAt = 0; G.staggerYouFrom = 0; G.staggerOppFrom = 0;
         G.hitZoneYou = ''; G.hitZoneOpp = '';
         G.walkT0 = 0; G.deathGraceUntil = 0;
+        if (G.deathGraceTimer){ clearTimeout(G.deathGraceTimer); G.deathGraceTimer = null; }
         effects.length = 0; // chapéu no chão e respingos somem na rodada nova
         if (typeof GL !== 'undefined' && GL.rigs){
           ['you','opp'].forEach(function(sd){ if (GL.rigs[sd]) glbResetRig(GL.rigs[sd]); });
@@ -2267,7 +2291,16 @@
           var vx = pos.getX(vi), vz = pos.getZ(vi);
           var n = Math.sin(vx * 0.32 + vz * 0.19) * 0.28 + Math.sin(vx * 0.11 - vz * 0.27) * 0.42 + Math.sin(vx * 0.71 + vz * 0.53) * 0.12;
           var fx = Math.max(0, Math.min(1, (Math.abs(vx) - 5.5) / 3));
-          var fz = Math.max(0, Math.min(1, (Math.abs(vz + 1) - 4) / 3));
+          // CORREÇÃO (v15, pés flutuando): vz é a coordenada LOCAL do
+          // plano, mas o chão está deslocado para z=-8 — então vz+1
+          // media o relevo no lugar errado: a zona plana caía em
+          // z do mundo [-13,-5] (atrás, na igreja) e a área do duelo
+          // (z≈0) ficava ondulada (f=1), com o chão até 0,10 abaixo
+          // do nível 0,02 que o chão dos bonecos assume. Os pés
+          // flutuavam sobre a terra. Agora fz usa o z do MUNDO e a
+          // zona plana cobre o duelo (z≈0) e os prédios (z≈-13).
+          var wz = vz - 8;
+          var fz = Math.max(0, Math.min(1, (Math.abs(wz + 5.5) - 8.5) / 3));
           var f = Math.max(fx, fz);
           var hy = n * 0.45 * f + Math.max(0, Math.abs(vx) - 16) * 0.03 + Math.max(0, -vz - 15) * 0.04;
           pos.setY(vi, hy);
@@ -2928,16 +2961,18 @@
         info.groundY = groundY;
         // distância do osso mais baixo (em repouso) até a sola: é o
         // quanto o osso fica acima da superfície do corpo. Limitada a
-        // 0,10 — na pose de repouso o pé está apontado/enrolado e o
+        // 0,09 — na pose de repouso o pé está apontado/enrolado e o
         // osso do dedão fica 0,30 acima da sola; com o pé chapado no
-        // chão (parado, andando, deitado) a distância real é ~0,10.
-        // Sem o limite, os pés flutuam ~0,30 acima do chão.
+        // chão (parado, andando, deitado) a distância real é ~0,09
+        // (medida no Chromium: calcanhar 0,15 abaixo do dedão em
+        // pé — 0,085 no Billy, 0,099 no Buster). Sem o limite, os
+        // pés flutuam ~0,30 acima do chão.
         var minBoneY = Infinity;
         names.forEach(function(n){
           if (n === 'Root' || n === 'Body') return;
           if (info.restPos[n] && info.restPos[n].y < minBoneY) minBoneY = info.restPos[n].y;
         });
-        info.boneToGround = (minBoneY === Infinity) ? 0 : Math.min(0.10, Math.max(0, minBoneY - groundY));
+        info.boneToGround = (minBoneY === Infinity) ? 0 : Math.min(0.09, Math.max(0, minBoneY - groundY));
         return info;
       }
       // chapéu do jogo (o do Buster): copa com vinco, aba com borda
