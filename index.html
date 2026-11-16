@@ -150,6 +150,7 @@
       .note{font-size:.88rem; color:var(--ink-soft); background:var(--panel2); border-radius:.6rem; padding:.6rem .75rem; margin-top:.8rem}
       .note strong{color:var(--ink)}
       .err{color:var(--red); font-weight:600; font-size:.92rem; min-height:1.2em; margin-top:.4rem}
+      .err:not(:empty){background:rgba(179,38,30,.08); border:1px solid rgba(179,38,30,.35); border-radius:.5rem; padding:.55rem .7rem}
       .ok{color:var(--green); font-weight:600; font-size:.92rem; min-height:1.2em; margin-top:.4rem}
       kbd{background:var(--panel2); border:1px solid var(--line); border-bottom-width:2.5px; border-radius:.35rem; padding:.05rem .4rem; font-family:inherit; font-weight:700; font-size:.85em}
 
@@ -5293,7 +5294,7 @@
       function sendMsg(o){ if (connOpen()){ try { dc.send(JSON.stringify(o)); } catch(e){} } }
       function myDisplayName(){ return (el('myName').value || '').trim() || 'Pistoleiro'; }
       function setStep(html){ el('manualStatus').innerHTML = html; }
-      function onlineError(msg){ el('onlineErr').textContent = msg || ''; if (msg) el('onlineOk').textContent = ''; }
+      function onlineError(msg){ el('onlineErr').textContent = msg || ''; if (msg){ el('onlineOk').textContent = ''; try { el('onlineErr').scrollIntoView({ behavior: 'auto', block: 'center' }); } catch(e){} } }
       function onlineOkMsg(msg){ el('onlineOk').textContent = msg || ''; if (msg) el('onlineErr').textContent = ''; }
 
       function cleanupConn(){
