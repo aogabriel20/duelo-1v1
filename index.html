@@ -468,11 +468,12 @@
         if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         return audioCtx;
       }
+      var PITCH = 1; // v30: multiplicador de tom (varia a cada tiro/impacto)
       function beep(freq, dur, type, vol, when){
         if (!soundOn) return; var a = ac(); if (!a) return;
         var t = a.currentTime + (when || 0);
         var o = a.createOscillator(), g = a.createGain();
-        o.type = type || 'square'; o.frequency.value = freq;
+        o.type = type || 'square'; o.frequency.value = freq * PITCH;
         g.gain.setValueAtTime(vol || .12, t);
         g.gain.exponentialRampToValueAtTime(.001, t + dur);
         o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur);
@@ -496,8 +497,8 @@
         if (!soundOn) return; var a = ac(); if (!a) return;
         var t = a.currentTime + (when || 0);
         var o = a.createOscillator(), g = a.createGain();
-        o.type = type; o.frequency.setValueAtTime(f0, t);
-        o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+        o.type = type; o.frequency.setValueAtTime(f0 * PITCH, t);
+        o.frequency.exponentialRampToValueAtTime(Math.max(20, f1 * PITCH), t + dur);
         g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
         o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur);
       }
@@ -534,6 +535,8 @@
         metalClick(980, 1.52, .09); metalClick(1350, 1.6, .08); // tambor fecha e gira
       }
       function shellPing(){ beep(2100 + Math.random()*600, .07, 'triangle', .05); }
+      function hatThud(){ noiseBurst(.07, 'lowpass', 700, .22); toneDrop(240, 95, .10, 'triangle', .22); }
+      function corpseThud(){ toneDrop(120, 44, .22, 'sine', .5); noiseBurst(.16, 'lowpass', 340, .34); noiseBurst(.05, 'highpass', 1800, .08); }
       function hitSound(){
         // acerto: estalo seco do projétil + baque curto do corpo. Antes era
         // um seno puro grave (120→52 Hz) que soava oco, como bater numa
@@ -545,6 +548,10 @@
         toneDrop(180, 65, .16, 'triangle', .5);
         noiseBurst(.10, 'bandpass', 850, .3, .01, 0.9);
       }
+      // v30: cada tiro, impacto, queda e chapéu soa um pouco diferente (tom de 0,93x a 1,07x)
+      function pvary(fn){ return function(){ PITCH = 0.93 + Math.random() * 0.14; try { return fn.apply(this, arguments); } finally { PITCH = 1; } }; }
+      gunshot = pvary(gunshot); hitSound = pvary(hitSound); fallSound = pvary(fallSound); deathSound = pvary(deathSound);
+      hatThud = pvary(hatThud); corpseThud = pvary(corpseThud); shellPing = pvary(shellPing); dryClick = pvary(dryClick);
       function countBeep(final){
         // contagem do vídeo: números com tique seco e curto; o FIRE! sobe e segura
         if (final){ beep(880, .3, 'square', .13); beep(1318, .38, 'square', .09, .03); toneDrop(300, 90, .25, 'sine', .2, 0); }
@@ -622,7 +629,187 @@
         advanceTimer: null,                   // timer da passagem para a próxima rodada
         btnNext: null, btnMenu: null          // retângulos dos botões da tela ROUND COMPLETE
       };
+
       var effects = [];   // {kind:'tracer'|'text'|'flash'|'ring', ... , until}
+
+      /* =========================================================
+         FISICA DE MORTE, SANGUE E CHAPEU (v29)
+         Tudo que da para ajustar esta em PHYS_*: se algo ficar
+         forte ou fraco demais, mude so os numeros.
+         ========================================================= */
+      var PHYS_DEATH = {
+        // v = velocidade inicial do deslize (px/s), a = atrito do chao (px/s^2),
+        // lift = altura do "voo" ao levar o tiro (unidades de mundo, 1 = 80 px),
+        // tilt = inclinacao para tras no ar (rad)
+        head:  { v: 230, a: 480, lift: 0.16, tilt: 0.26 },
+        chest: { v: 200, a: 480, lift: 0.14, tilt: 0.22 },
+        belly: { v: 140, a: 480, lift: 0.07, tilt: 0.12 },
+        legs:  { v:  60, a: 480, lift: 0,    tilt: 0 },
+        arm:   { v: 110, a: 480, lift: 0.03, tilt: 0.05 }
+      };
+      var PHYS_BLOOD = { gravity: 1500, maxStains: 700, poolSeconds: 4.2, poolRadius: 0.50 };
+      var PHYS_HAT = { gravity: 1500, bounce: 0.38, friction: 6 };
+
+      // chao de sangue: uma textura transparente colada no chao 3D
+      var STAIN = { cv:null, cx:null, tex:null, mesh:null, list:[], pools:[], dirty:false, W:1536, H:384 };
+      var STAIN_X0 = -6, STAIN_XW = 12, STAIN_Z0 = -1.35, STAIN_ZW = 3;
+      function groundScreenY(zw){
+        try {
+          if (typeof GL !== 'undefined' && GL.ok && GL.camera){
+            var v = new THREE.Vector3(0, 0.02, zw).project(GL.camera);
+            return (0.5 - v.y * 0.5) * 540;
+          }
+        } catch (e) {}
+        return GROUND + zw * 40;
+      }
+      function initStains(){
+        try {
+          if (!GL.ok || !GL.scene) return;
+          STAIN.cv = document.createElement('canvas');
+          STAIN.cv.width = STAIN.W; STAIN.cv.height = STAIN.H;
+          STAIN.cx = STAIN.cv.getContext('2d');
+          STAIN.tex = new THREE.CanvasTexture(STAIN.cv);
+          var geo = new THREE.PlaneGeometry(STAIN_XW, STAIN_ZW);
+          geo.rotateX(-Math.PI / 2);
+          var mat = new THREE.MeshBasicMaterial({ map: STAIN.tex, transparent: true, depthWrite: false,
+            polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+          var m = new THREE.Mesh(geo, mat);
+          m.position.set(0, 0.012, STAIN_Z0 + STAIN_ZW / 2);
+          m.renderOrder = 1;
+          GL.scene.add(m);
+          STAIN.mesh = m;
+        } catch (e) { STAIN.mesh = null; }
+      }
+      function clearStains(){
+        try { clearStains0(); } catch (e) {}
+      }
+      function clearStains0(){
+        STAIN.list.length = 0; STAIN.pools.length = 0; STAIN.dirty = true;
+        if (STAIN.cx) STAIN.cx.clearRect(0, 0, STAIN.W, STAIN.H);
+        if (STAIN.tex) STAIN.tex.needsUpdate = true;
+      }
+      function addStain(xw, zw, r, speed, sx, sy){
+        if (STAIN.list.length >= PHYS_BLOOD.maxStains) STAIN.list.shift();
+        STAIN.list.push({ x: xw, z: zw, r: r, sp: speed || 0, sx: sx, sy: sy, k: Math.random() });
+        STAIN.dirty = true;
+      }
+      function stainBlob(c, u, v, rx, ry, a){
+        c.beginPath(); c.ellipse(u, v, Math.max(0.6, rx), Math.max(0.5, ry), 0, 0, Math.PI * 2); c.fill();
+      }
+      function drawPoolShape(c, u, v, R, seed, alpha){
+        // poca irregular: varias elipses sobrepostas, com um brilho de sangue fresco
+        c.fillStyle = 'rgba(92,8,6,' + alpha + ')';
+        for (var i = 0; i < 8; i++){
+          var a = seed * 6.28 + i * 0.785, rr = R * (0.55 + 0.45 * ((Math.sin(seed * 91 + i * 2.3) + 1) / 2));
+          stainBlob(c, u + Math.cos(a) * R * 0.38, v + Math.sin(a) * R * 0.20, rr * 0.62, rr * 0.34);
+        }
+        stainBlob(c, u, v, R * 0.9, R * 0.46);
+        c.fillStyle = 'rgba(150,22,16,' + (alpha * 0.45) + ')';
+        stainBlob(c, u - R * 0.1, v - R * 0.05, R * 0.45, R * 0.2);
+      }
+      function updatePools(now){
+        STAIN.pools.forEach(function(p){
+          if (p.done || now < p.t0) return;
+          var t = (now - p.t0) / 1000;
+          // segue o corpo enquanto ele ainda desliza
+          if (t < 1.4){
+            try {
+              var rg = GL.rigs[p.side], vh = new THREE.Vector3(), vc = new THREE.Vector3();
+              rg.bones.Hips.getWorldPosition(vh); rg.bones.Chest.getWorldPosition(vc);
+              p.x = (vh.x + vc.x) / 2; p.z = Math.max(-0.3, Math.min(0.3, vh.z)) + 0.04;
+            } catch (e) {}
+          }
+          p.r = PHYS_BLOOD.poolRadius * p.scale * (1 - Math.exp(-t / 1.3));
+          if (t > PHYS_BLOOD.poolSeconds) p.done = true;
+          STAIN.dirty = true;
+        });
+      }
+      function flushStains(now){
+        try { flushStains0(now); } catch (e) { STAIN.dirty = false; }
+      }
+      function flushStains0(now){
+        updatePools(now);
+        if (!STAIN.dirty) return;
+        STAIN.dirty = false;
+        if (!STAIN.mesh || !STAIN.cx) return;
+        var c = STAIN.cx;
+        c.clearRect(0, 0, STAIN.W, STAIN.H);
+        var ppx = STAIN.W / STAIN_XW, ppz = STAIN.H / STAIN_ZW;
+        STAIN.pools.forEach(function(p){
+          if (!p.r) return;
+          drawPoolShape(c, (p.x - STAIN_X0) * ppx, (p.z - STAIN_Z0) * ppz, p.r * ppx, p.seed, 0.90);
+        });
+        c.fillStyle = 'rgba(105,10,8,0.88)';
+        STAIN.list.forEach(function(st){
+          var u = (st.x - STAIN_X0) * ppx, v = (st.z - STAIN_Z0) * ppz;
+          var r = st.r * ppx, stretch = 1 + Math.min(1.6, st.sp / 380);
+          stainBlob(c, u, v, r * stretch, r * 0.8);
+          if (st.k > 0.55) stainBlob(c, u + (st.k - 0.5) * r * 6, v + (st.k - 0.7) * r * 2, r * 0.35, r * 0.3); // gota satelite
+        });
+        STAIN.tex.needsUpdate = true;
+      }
+      // sem WebGL (versao 2D de reserva): desenha as manchas por cima
+      function drawStainsOverlay(){
+        try { drawStainsOverlay0(); } catch (e) {}
+      }
+      function drawStainsOverlay0(){
+        if (STAIN.mesh) return;
+        ctx.fillStyle = 'rgba(105,10,8,0.85)';
+        STAIN.list.forEach(function(st){
+          if (st.sx == null) return;
+          ctx.beginPath(); ctx.ellipse(st.sx, st.sy, st.r * 80 * (1 + Math.min(1.6, st.sp / 380)), st.r * 80 * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+        });
+      }
+      /* jato de sangue: particulas com gravidade; ao tocar o chao viram manchas
+         permanentes (ate o fim da rodada). dir = direcao do tiro (+1 direita). */
+      function spawnBloodSpray(x, y, dir, zone, now, kill){
+        try { spawnBloodSpray0(x, y, dir, zone, now, kill); } catch (e) {}
+      }
+      function spawnBloodSpray0(x, y, dir, zone, now, kill){
+        var n = kill ? 16 : (zone === 'head' ? 20 : zone === 'arm' ? 9 : zone === 'legs' ? 11 : 16);
+        var ps = [];
+        for (var i = 0; i < n; i++){
+          var exitSide = Math.random() < 0.72; // maior parte sai pelas costas (na direcao do tiro)
+          var sp = (exitSide ? 150 + Math.random() * 330 : 60 + Math.random() * 150) * (kill ? 1.15 : 1);
+          var ang = (Math.random() * 1.5 - 0.95); // sobe e abre em leque
+          var zw = (Math.random() - 0.5) * 1.1;
+          ps.push({
+            x: x, y: y, vx: (exitSide ? dir : -dir) * sp * Math.cos(ang), vy: sp * Math.sin(ang) - 40,
+            r: 1.3 + Math.random() * 2.2 + (Math.random() < 0.12 ? 2.5 : 0),
+            zw: zw, landY: groundScreenY(zw) - 1, alive: true
+          });
+        }
+        effects.push({ kind:'bloodp', ps: ps, born: now, last: now, until: now + 2600 });
+      }
+      function startPool(side, now){
+        try { startPool0(side, now); } catch (e) {}
+      }
+      function startPool0(side, now){
+        setTimeout(function(){ try { corpseThud(); } catch (e) {} }, 780);
+        STAIN.pools.push({ side: side, t0: now + 520, x: 0, z: 0, r: 0, scale: 0.85 + Math.random() * 0.3, seed: Math.random(), done: false });
+      }
+      // deslize, voo e quique do corpo depois do tiro fatal (unidades de mundo)
+      function corpseKin(side, now){
+        try { return corpseKin0(side, now); } catch (e) { return { dx:0, dy:0, tilt:0 }; }
+      }
+      function corpseKin0(side, now){
+        var at = side === 'you' ? G.deathYouAt : G.deathOppAt;
+        if (!at || now < at) return { dx:0, dy:0, tilt:0 };
+        var z = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
+        if (z === 'body') z = 'chest';
+        var P = PHYS_DEATH[z] || PHYS_DEATH.chest;
+        var t = (now - at) / 1000;
+        var tt = Math.min(t, P.v / P.a);
+        var dx = (P.v * tt - 0.5 * P.a * tt * tt) * S3;
+        var dy = 0, tilt = 0;
+        if (P.lift > 0){
+          var T = 0.38;
+          if (t < T){ var u = t / T; dy = P.lift * 4 * u * (1 - u); tilt = P.tilt * Math.sin(Math.PI * u); }
+          var t2 = t - 0.78; // quique curto quando o corpo bate no chao
+          if (t2 > 0 && t2 < 0.26){ var u2 = t2 / 0.26; dy += P.lift * 0.22 * 4 * u2 * (1 - u2); }
+        }
+        return { dx: dx, dy: dy, tilt: tilt };
+      }
       var ai = { nextShot: 0, aimTarget: {x:.26,y:.5}, nextWander: 0, level: 0 };
       var DIFF = {
         easy:   { react: 950, interval: 780, spread: 95 },
@@ -718,7 +905,29 @@
         if (side === 'you'){ G.staggerYouFrom = now; G.staggerYouUntil = now + dur; }
         else { G.staggerOppFrom = now; G.staggerOppUntil = now + dur; }
       }
-      function charFor(side){ return charById(side === 'you' ? G.charYou : G.charOpp); }
+      /* v30: variações visuais do oponente (cor do terno, do chapéu e da faixa).
+         Os corpos 3D são os mesmos dois modelos; só as cores mudam. */
+      var CHAR_VARIANTS = {
+        buster: [ {},
+          { hat:'#2b2622', hatDark:'#16120f', band:'#8a1c1c', tint:'#5d6573' },
+          { hat:'#6b4a2a', hatDark:'#4b321b', band:'#e0c36a', tint:'#a08060' },
+          { hat:'#9aa0a6', hatDark:'#7a8086', band:'#203fa8', tint:'#8a98a8' } ],
+        billy: [ {},
+          { hat:'#2b2622', hatDark:'#16120f', band:'#b0201b', tint:'#6e6e6e' },
+          { hat:'#d9cba3', hatDark:'#bfae82', band:'#2f6b3a', tint:'#c0b090' } ]
+      };
+      var VARIANT_CACHE = {};
+      function variantOf(c, k){
+        var list = CHAR_VARIANTS[c.id]; if (!list || !k || !list[k]) return c;
+        var key = c.id + ':' + k;
+        if (!VARIANT_CACHE[key]){ VARIANT_CACHE[key] = Object.assign({}, c, list[k], { variant: k }); }
+        return VARIANT_CACHE[key];
+      }
+      function charFor(side){
+        var c = charById(side === 'you' ? G.charYou : G.charOpp);
+        if (side === 'opp' && G.mode === 'cpu' && G.oppVar) return variantOf(c, G.oppVar);
+        return c;
+      }
       // encolhida: sobe rápido quando o tiro passa raspando e volta devagar
       function currentCrouchP(side, now){
         var until = side === 'you' ? G.crouchYouUntil : G.crouchOppUntil;
@@ -988,10 +1197,15 @@
           var hx = hitScreenPos(targetSide, 'head', 0).x + (targetSide === 'you' ? 1 : -1) * lerp(10, 28, fpH);
           var hy = lerp(180, 280, fpH);
           if (targetSide === 'you') G.hatYouUntil = Infinity; else G.hatOppUntil = Infinity; // chapéu fica fora da cabeça até o fim da rodada (vídeo: não volta)
+          var hDir = targetSide === 'you' ? -1 : 1; // voa para trás, para longe do oponente (vídeo)
           effects.push({ kind:'hatfly', x: hx, y: hy - 22, born: now, until: Infinity,
-            dir: targetSide === 'you' ? -1 : 1, // voa para trás, para longe do oponente (vídeo)
+            dir: hDir,
             hat: hc.hat,
-            band: hc.band });
+            band: hc.band,
+            // física: velocidade, giro, gravidade, quique e rolagem no chão
+            px: hx, py: hy - 22, vx: hDir * (90 + Math.random() * 110), vy: -(320 + Math.random() * 200),
+            w: hDir * (5 + Math.random() * 8), rot: 0, last: now, rest: false, hits: 0,
+            gy: GROUND + 10 + Math.random() * 10 });
         }
         var hp = targetSide === 'you' ? G.hpYou : G.hpOpp;
         if (hp <= 0) return; // caiu de vez: o desenho cuida do corpo no chão
@@ -1178,7 +1392,7 @@
           effects.push({ kind:'blood', x: hitP.x, y: hitP.y, born: now, until: now + 620, dir: isYou ? 1 : -1 });
           // respingos no chão que FICAM até o fim da rodada (vídeo) —
           // atrás de quem levou o tiro, para não cobrir os pés
-          effects.push({ kind:'bloodground', x: hitP.x + (isYou ? 1 : -1) * (34 + Math.random() * 42), y: GROUND + 6, born: now, until: Infinity, seed: Math.random() });
+          spawnBloodSpray(hitP.x, hitP.y, isYou ? 1 : -1, hit.name, now, false);
           // VIDA COM UM DONO SÓ: no online, só o anfitrião aplica dano e
           // pontos. O convidado mostra o acerto na hora (sangue, "-25",
           // som), mas a vida e os pontos só mudam quando o anfitrião
@@ -1196,6 +1410,8 @@
               if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); }
               if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); }
               effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1250 });
+              spawnBloodSpray(hitP.x, hitP.y, isYou ? 1 : -1, hit.name, now, true);
+              startPool(tSideD, now);
             }
           }
           if (isYou && !remote){ G.stats.hits++; G.roundHits++; }
@@ -1329,6 +1545,8 @@
         G.phase = 'matchEnd';
         G.btnNext = null; G.btnMenu = null; // sem retângulo velho da tela ROUND COMPLETE
         var youWon = G.scoreYou > G.scoreOpp;
+        G.rank = null;
+        if (G.mode === 'cpu'){ try { G.rank = rankingAdd(G.youName, G.pointsYou, youWon); } catch (e) { G.rank = null; } }
         showMsg(youWon ? '🏆 Você venceu o duelo!' : 'O oponente venceu o duelo.', 6000);
         renderHUD();
         if (G.mode === 'online' && G.role === 'host') el('startOnlineBtn').disabled = !connOpen();
@@ -1363,6 +1581,7 @@
         G.walkT0 = 0; G.deathGraceUntil = 0;
         if (G.deathGraceTimer){ clearTimeout(G.deathGraceTimer); G.deathGraceTimer = null; }
         effects.length = 0; // chapéu no chão e respingos somem na rodada nova
+        clearStains();
         if (typeof GL !== 'undefined' && GL.rigs){
           ['you','opp'].forEach(function(sd){ if (GL.rigs[sd]) glbResetRig(GL.rigs[sd]); });
         }
@@ -1391,6 +1610,7 @@
           // oponente é sempre o outro — jogando de Billy, enfrenta o
           // Buster Scruggs; jogando de Buster, enfrenta o Billy Poeira
           if (G.round >= 2) G.charOpp = G.charYou === 'buster' ? 'billy' : 'buster';
+          G.oppVar = G.round >= 2 ? Math.floor(Math.random() * (CHAR_VARIANTS[G.charOpp] || [0]).length) : 0; // v30
           setupAI();
         }
         hideMsg();
@@ -3193,6 +3413,13 @@
         var src = GL.glbCache[colors.id];
         var info = GL.glbInfo[colors.id];
         var clone = cloneSkinned(src.scene);
+        if (colors.tint){ // v30: cor do terno do oponente (multiplica a textura; material próprio para não afetar o original)
+          clone.traverse(function(o){
+            if (o.isMesh && o.material && !Array.isArray(o.material) && /casualsuit/i.test(o.material.name || '')){
+              o.material = o.material.clone(); if (o.material.color) o.material.color.set(colors.tint);
+            }
+          });
+        }
         // animações próprias do modelo: o .gltf traz os clips feitos
         // para esse corpo (idle, walk, run, wave nos MPFB; Idle_Gun,
         // Walk, Wave nos Quaternius de reserva). O mixer escreve a
@@ -4042,7 +4269,7 @@
             // v25: em pé usa o vão calibrado na sola (boneToGroundUp);
             // caído/morto mantém o boneToGround original (v21).
             var btg = (upright && info.boneToGroundUp != null) ? info.boneToGroundUp : (info.boneToGround || 0);
-            rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - btg) * info.scale;
+            rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - btg) * info.scale + corpseKin(C.side, C.now).dy / sy; // v29: corpo sai do chão ao levar o tiro
           }
         }
         // --- corpo morto/caído sempre cabe inteiro na tela ---
@@ -4071,7 +4298,7 @@
           }
         }
         // --- rotação do grupo (balanço do andar + tombo da perna) ---
-        g.rotation.z = Math.sin(C.wph) * 0.015 * C.wsw + fwd * 0.05 * C.buckle;
+        g.rotation.z = Math.sin(C.wph) * 0.015 * C.wsw + fwd * 0.05 * C.buckle + fwd * corpseKin(C.side, C.now).tilt; // v29: jogado para trás no ar
         // --- adereços: chapéu, revólver e violão seguem os ossos de verdade ---
         var P = rig.parts, SP = C.SP;
         var innerPos = rig.inner.position;
@@ -4435,9 +4662,10 @@
         if (!GL.ok) return;
         var rig = GL.rigs[side];
         var wantGLB = !!GL.glbOK[colors.id] && !!GL.glbCache[colors.id];
-        if (!rig || rig.charId !== colors.id || (wantGLB && !rig.glb) || (!wantGLB && rig.glb)){
+        if (!rig || rig.charId !== colors.id || (rig.variant || 0) !== (colors.variant || 0) || (wantGLB && !rig.glb) || (!wantGLB && rig.glb)){
           if (rig){ GL.scene.remove(rig.group); if (rig.parts.blood) GL.scene.remove(rig.parts.blood); }
           rig = GL.rigs[side] = wantGLB ? buildGLBRig(colors, flip) : buildFigRig(colors, flip);
+          rig.variant = colors.variant || 0;
         }
         var fwd = flip ? -1 : 1;
         var S = colors.id === 'buster' ? U_SET : B_SET;
@@ -4537,7 +4765,8 @@
         // --- posição do grupo: pulo (nunca afunda), passo do andar, empurrão do tiro ---
         var wsw = extra.walkSwing || 0;
         var wph = now / 95;
-        g.position.set(wX3(cx) + Math.sin(wph) * 0.03 * wsw + SP.push.x * 1.0, Math.max(0, extra.hop || 0) * S3 + Math.abs(Math.cos(wph)) * 0.02 * wsw, 0);
+        var ck = corpseKin(side, now); // v29: impulso da morte (deslize no chão)
+        g.position.set(wX3(cx) + Math.sin(wph) * 0.03 * wsw + SP.push.x * 1.0 - fwd * ck.dx, Math.max(0, extra.hop || 0) * S3 + Math.abs(Math.cos(wph)) * 0.02 * wsw, 0);
         g.scale.set(1 + 0.10 * sq, 1 - 0.16 * sq, 1);
         // --- juntas em unidades de mundo ---
         function mp(p){ return { x: (flip ? -p[0] : p[0]) * S3, y: (GROUND - p[1]) * hh * S3, z: 0 }; }
@@ -4880,6 +5109,7 @@
         }
       }
       GLInit();
+      try { initStains(); } catch (e) {}
       function drawScene(now){
         // com o 3D ligado, o cenário é o modelo 3D — aqui só as barras de vida
         if (GL.ok){
@@ -5097,7 +5327,67 @@
       }
       // fim de duelo: painel com botões claros (o defeito do vídeo: só
       // aparecia "Revanche?" como pílula de texto, sem botão nenhum)
+      /* v30: ranking local (os 10 melhores neste aparelho, guardado no navegador) */
+      var RANK_KEY = 'duelo_ranking_v1', RANK_MEM = [];
+      function rankLoad(){
+        try { var j = JSON.parse(localStorage.getItem(RANK_KEY) || 'null'); if (j && j.length != null) return j; } catch (e) {}
+        return RANK_MEM.slice();
+      }
+      function rankSave(list){
+        RANK_MEM = list.slice();
+        try { localStorage.setItem(RANK_KEY, JSON.stringify(list)); } catch (e) {}
+      }
+      function rankingAdd(name, score, won){
+        var list = rankLoad();
+        var entry = { n: String(name || 'Você').slice(0, 14), p: Math.round(score) || 0, w: !!won, id: Date.now() + '' + Math.floor(Math.random() * 1000) };
+        list.push(entry);
+        list.sort(function(a, b){ return b.p - a.p; });
+        list = list.slice(0, 10);
+        rankSave(list);
+        var pos = -1;
+        for (var i = 0; i < list.length; i++) if (list[i].id === entry.id){ pos = i; break; }
+        return { rank: pos + 1, score: entry.p, id: entry.id, top: list.slice(0, 5) };
+      }
       function drawMatchEndPanel(){
+        var a = panelAnim(); ctx.save(); ctx.globalAlpha = a;
+        try { if (G.mode === 'cpu') drawMatchEndRank(); else drawMatchEndPanel0(); } finally { ctx.restore(); }
+      }
+      function drawMatchEndRank(){
+        var x = 298, y = 46, w = 364, h = 300;
+        panelBase(x, y, w, h, false);
+        ctx.textAlign = 'center';
+        var youWon = G.scoreYou > G.scoreOpp;
+        ctx.fillStyle = youWon ? '#1d7a38' : '#8a2b20';
+        ctx.font = '700 30px Georgia, "Times New Roman", serif';
+        ctx.fillText(youWon ? '🏆 Você venceu!' : 'O oponente venceu', W/2, y + 44);
+        ctx.fillStyle = '#3a6ea5';
+        ctx.font = '700 21px Georgia, "Times New Roman", serif';
+        ctx.fillText('Placar final: ' + G.scoreYou + ' × ' + G.scoreOpp, W/2, y + 76);
+        var R = G.rank;
+        if (R){
+          ctx.fillStyle = '#333'; ctx.font = '600 16px Archivo, sans-serif';
+          ctx.fillText('Sua pontuação: ' + Math.round(R.score * Math.min(1, CU + 0.0001)) + ' pts' + (R.rank ? '  ·  #' + R.rank + ' no ranking' : ''), W/2, y + 102);
+          ctx.fillStyle = '#8a7a55'; ctx.font = '700 11px Archivo, sans-serif';
+          ctx.fillText('MELHORES RESULTADOS (neste aparelho)', W/2, y + 124);
+          ctx.font = '600 14px Archivo, sans-serif';
+          R.top.forEach(function(e, i){
+            var ry = y + 144 + i * 19, mine = e.id === R.id;
+            if (mine){ ctx.fillStyle = 'rgba(47,174,78,.18)'; ctx.fillRect(x + 28, ry - 14, w - 56, 18); }
+            ctx.fillStyle = mine ? '#1d7a38' : '#444';
+            ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + e.n, x + 38, ry);
+            ctx.textAlign = 'right'; ctx.fillText(e.p + ' pts', x + w - 38, ry);
+          });
+        }
+        ctx.textAlign = 'center';
+        G.btnNext = { x: x + 62, y: y + 242, w: 240, h: 32 };
+        G.btnMenu = { x: x + 62, y: y + 278, w: 240, h: 18 };
+        ctx.fillStyle = '#1d7a38'; ctx.fillRect(G.btnNext.x, G.btnNext.y, G.btnNext.w, G.btnNext.h);
+        ctx.fillStyle = '#fff'; ctx.font = '700 17px Archivo, sans-serif';
+        ctx.fillText('JOGAR NOVAMENTE', W/2, G.btnNext.y + 22);
+        ctx.fillStyle = '#777'; ctx.font = '600 12px Archivo, sans-serif';
+        ctx.fillText('MENU', W/2, G.btnMenu.y + 13);
+      }
+      function drawMatchEndPanel0(){
         var x = 298, y = 46, w = 364, h = 300;
         panelBase(x, y, w, h, false);
         ctx.textAlign = 'center';
@@ -5128,7 +5418,20 @@
           ctx.fillText('para uma revanche.', W/2, y + 234);
         }
       }
+      // v30: painéis entram com fade e os bônus contam de 0 até o valor final
+      var PANEL_KEY = '', PANEL_T0 = 0, CU = 1;
+      function panelAnim(){
+        var now = performance.now(), key = G.phase + ':' + G.countT0 + ':' + G.round + ':' + G.winner;
+        if (key !== PANEL_KEY){ PANEL_KEY = key; PANEL_T0 = now; }
+        var t = now - PANEL_T0;
+        CU = Math.min(1, Math.max(0, (t - 350) / 1100));
+        return Math.min(1, t / 350);
+      }
       function drawRoundCompletePanel(){
+        var a = panelAnim(); ctx.save(); ctx.globalAlpha = a;
+        try { drawRoundCompletePanel0(); } finally { ctx.restore(); }
+      }
+      function drawRoundCompletePanel0(){
         var x = 298, y = 46, w = 364, h = 300;
         if (G.winner === 'draw'){
           // DRAW GAME: os dois caíram ao mesmo tempo — ninguém leva a
@@ -5185,12 +5488,12 @@
           ctx.strokeStyle = 'rgba(47,174,78,.35)'; ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(x + 26, ry + 10); ctx.lineTo(x + w - 26, ry + 10); ctx.stroke();
           ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.fillText(r[0], x + 34, ry);
-          ctx.fillStyle = '#3a6ea5'; ctx.textAlign = 'right'; ctx.fillText(String(r[1]), x + w - 40, ry);
+          ctx.fillStyle = '#3a6ea5'; ctx.textAlign = 'right'; ctx.fillText(String(Math.round(r[1] * CU)), x + w - 40, ry);
         });
         ctx.textAlign = 'left'; ctx.fillStyle = '#333'; ctx.font = '400 20px Georgia, serif';
         ctx.fillText('Total Score:', x + 34, y + 196);
         ctx.fillStyle = '#3a6ea5'; ctx.textAlign = 'right'; ctx.font = '700 27px Georgia, serif';
-        ctx.fillText(String(total), x + w - 40, y + 198);
+        ctx.fillText(String(Math.round(total * CU)), x + w - 40, y + 198);
         ctx.textAlign = 'center';
         ctx.font = '600 17px Archivo, sans-serif'; ctx.fillStyle = G.winner === 'you' ? '#1d7a38' : '#8a2b20';
         ctx.fillText(G.winner === 'draw' ? 'Empate na rodada!' : (G.winner === 'you' ? 'Você venceu a rodada!' : 'Oponente venceu a rodada'), W/2, y + 224);
@@ -5355,6 +5658,8 @@
         });
 
         // efeitos
+        flushStains(now);
+        drawStainsOverlay();
         effects = effects.filter(function(e){ return now < e.until; });
         effects.forEach(function(e){
           if (e.kind === 'tracer'){
@@ -5421,15 +5726,49 @@
               var gy = e.y + ((gi * 53 + sg * 57) % 10) - 5;
               ctx.beginPath(); ctx.arc(gx, gy, 2 + (gi % 3), 0, Math.PI*2); ctx.fill();
             }
+          } else if (e.kind === 'bloodp'){
+            // gotas de sangue: voam, caem e viram mancha permanente no chão
+            var dtB = Math.min(0.1, Math.max(0, (now - e.last) / 1000)); e.last = now;
+            ctx.lineCap = 'round';
+            e.ps.forEach(function(pt){
+              if (!pt.alive) return;
+              pt.vy += PHYS_BLOOD.gravity * dtB;
+              pt.x += pt.vx * dtB; pt.y += pt.vy * dtB;
+              if (pt.y >= pt.landY){
+                pt.alive = false;
+                addStain(wX3(pt.x), pt.zw, pt.r * 0.0125, Math.abs(pt.vx), pt.x, pt.y);
+                return;
+              }
+              ctx.strokeStyle = 'rgba(165,14,10,.95)'; ctx.lineWidth = pt.r * 1.5;
+              ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x - pt.vx * 0.012, pt.y - pt.vy * 0.012); ctx.stroke();
+            });
           } else if (e.kind === 'hatfly'){
-            // chapéu voa para trás, sobe ~46 px (medido no vídeo), cai
-            // no chão e FICA lá até a rodada acabar (não some)
-            var hp3 = Math.min(1, Math.max(0, (now - e.born) / 1250));
-            var hx2 = e.x + e.dir * hp3 * 70;
-            var hy2;
-            if (hp3 < 0.25) hy2 = e.y - 46 * (hp3 / 0.25);
-            else { var hq = (hp3 - 0.25) / 0.75; hy2 = (e.y - 46) + (GROUND - (e.y - 46)) * hq * hq; }
-            ctx.save(); ctx.translate(hx2, hy2); ctx.rotate(e.dir * (Math.sin(hp3 * Math.PI) * 1.2 + 0.35));
+            // chapéu com física: sai girando, bate no chão, quica, rola e para
+            var dtAll = Math.min(0.15, Math.max(0, (now - e.last) / 1000)); e.last = now;
+            var nStepH = Math.max(1, Math.ceil(dtAll / 0.016)), dtH = dtAll / nStepH;
+            for (var sH = 0; sH < nStepH && !e.rest; sH++){
+              e.vy += PHYS_HAT.gravity * dtH; e.px += e.vx * dtH; e.py += e.vy * dtH; e.rot += e.w * dtH;
+              if (e.px > 925){ e.px = 925; e.vx = -Math.abs(e.vx) * 0.3; } else if (e.px < 35){ e.px = 35; e.vx = Math.abs(e.vx) * 0.3; } // não sai da tela
+              if (e.py >= e.gy){
+                e.py = e.gy;
+                if (Math.abs(e.vy) > 110){
+                  e.vy = -e.vy * PHYS_HAT.bounce; e.vx *= 0.62; e.w *= 0.55; e.hits++;
+                  if (e.hits <= 2) hatThud();
+                } else {
+                  e.vy = 0;
+                  var fr = Math.max(0, 1 - PHYS_HAT.friction * dtH);
+                  e.vx *= fr; e.w *= fr;
+                  // assenta de pé, levemente inclinado
+                  var tr = e.rot - Math.PI * 2 * Math.round(e.rot / (Math.PI * 2));
+                  e.rot = tr + ((0.14 * e.dir) - tr) * Math.min(1, 8 * dtH);
+                  if (Math.abs(e.vx) < 6 && Math.abs(e.w) < 0.3) e.rest = true;
+                }
+              }
+            }
+            // sombra rápida sob o chapéu
+            ctx.fillStyle = 'rgba(60,25,10,.28)';
+            ctx.beginPath(); ctx.ellipse(e.px, e.gy + 3, 30, 5, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.save(); ctx.translate(e.px, e.py); ctx.rotate(e.rot);
             ctx.fillStyle = e.hat;
             ctx.beginPath(); ctx.ellipse(0, 0, 30, 6.6, 0, 0, Math.PI*2); ctx.fill();
             roundRect(-14, -16, 28, 16, 6); ctx.fill();
