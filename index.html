@@ -1848,7 +1848,7 @@
           useLean = true;
           // contagem: mão no coldre mesmo agachado
           if (G.phase === 'countdown'){
-            gun = { e: [j.hip[0] + 4, j.hip[1] - 26], h: [j.hip[0] + 10, j.hip[1] + 2], a: 1.35 };
+            gun = { e: [j.hip[0] - 2, j.hip[1] - 24], h: [j.hip[0] - 20, j.hip[1] + 6], a: 1.35 };
           }
         } else if (currentWalkP(now) < 1){
           AN.cap = null;
@@ -1859,7 +1859,7 @@
           useLean = true;
           // contagem: mão no coldre — a arma fica no quadril até o FIRE!
           if (G.phase === 'countdown' && currentWalkP(now) >= 1){
-            gun = { e: [j.hip[0] + 4, j.hip[1] - 26], h: [j.hip[0] + 10, j.hip[1] + 2], a: 1.35 };
+            gun = { e: [j.hip[0] - 2, j.hip[1] - 24], h: [j.hip[0] - 20, j.hip[1] + 6], a: 1.35 };
           }
         }
         if (!j) j = bResolve(S.STAND, null);
@@ -2634,10 +2634,10 @@
           P.neckBand = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.12, 0.045, 12), mat3(colors.band, .85, 0, 'cloth'));
           P.neckBand.castShadow = false; P.neckBand.userData.noShadow = true; group.add(P.neckBand);
         }
-        // cinto com fivela e coldre
+        // cinto com fivela e coldre (o mesmo coldre do rig GLB)
         P.belt = box3(0.44, 0.11, 0.22, mat3('#5a3a1e', .8, 0, 'leather')); group.add(P.belt);
         P.buckle = box3(0.09, 0.07, 0.03, mat3('#d9a92c', .4, .7, 'metal')); group.add(P.buckle);
-        P.holster = box3(0.09, 0.24, 0.07, mat3('#4a2f1a', .85, 0, 'leather')); group.add(P.holster);
+        P.holster = makeHolster3D(); group.add(P.holster);
         var tail = box3(0.24, 0.34, 0.04, coatD); group.add(tail); P.tail = tail;
         // CABEÇA DE GENTE — crânio mais comprido que largo, com testa,
         // mandíbula e queixo; o rosto é desenhado SOBRE a superfície.
@@ -3175,6 +3175,20 @@
         var sight = box3(0.02, 0.03, 0.02, steelD); sight.position.set(0.30, 0.035, 0); gunG.add(sight);
         return { group: gunG, drumSpin: drumSpin, hammerPivot: hammerPivot };
       }
+      // coldre de couro do jogo: o revólver fica guardado nele até o FIRE!
+      // (arte própria, procedural — bolsa de couro com boca reforçada,
+      // alça no cinto e rebite de latão; o cabo e o martelo ficam para
+      // fora, como num coldre de verdade, e o cano some dentro da bolsa).
+      function makeHolster3D(){
+        var holG = new THREE.Group();
+        var leather = mat3('#4a2f1a', .85, 0, 'leather');
+        var leatherD = mat3('#3a2410', .85, 0, 'leather');
+        var pouch = box3(0.14, 0.38, 0.14, leather); pouch.castShadow = true; holG.add(pouch);
+        var rim = box3(0.16, 0.05, 0.16, leatherD); rim.position.set(0, 0.20, 0); rim.castShadow = true; holG.add(rim);
+        var strap = box3(0.05, 0.12, 0.03, leatherD); strap.position.set(-0.04, 0.22, -0.06); holG.add(strap);
+        var stud = sph3(0.018, mat3('#d9a92c', .4, .8, 'metal')); stud.position.set(0, 0.05, 0.075); holG.add(stud);
+        return holG;
+      }
       function buildGLBRig(colors, flip){
         var src = GL.glbCache[colors.id];
         var info = GL.glbInfo[colors.id];
@@ -3277,6 +3291,7 @@
         var gun = makeRevolver3D();
         P.gunG = gun.group; P.hammerPivot = gun.hammerPivot; P.drumSpin = gun.drumSpin;
         group.add(P.gunG);
+        P.holsterG = makeHolster3D(); group.add(P.holsterG);
         var blood = makeBloodPool3D();
         GL.scene.add(blood); P.blood = blood;
         var stain = makeBloodStain3D(); group.add(stain); P.bloodStain = stain; // mancha na roupa
@@ -4115,8 +4130,31 @@
         var py = foreDir.y + (ay - foreDir.y) * sm.aimW;
         var pz = foreDir.z * (1 - sm.aimW);
         var pl = Math.sqrt(px * px + py * py + pz * pz) || 1; px /= pl; py /= pl; pz /= pl;
-        P.gunG.position.set(wristG.x + px * 0.11 - gripWx, wristG.y + py * 0.11 - gripWy, wristG.z + pz * 0.11 + 0.02);
-        P.gunG.rotation.z = gAng + (flip ? -rk : rk);
+        // --- coldre: a arma fica guardada até o FIRE! ---
+        // O coldre (couro, no quadril do lado da arma) é posicionado
+        // por quadro a partir do osso do quadril — acompanha o corpo
+        // andando, agachando e pulando. A arma fica DENTRO dele
+        // enquanto a mira está em 0 (menu, contagem, entrada) e sai
+        // para a mão durante o saque (aimW 0→1 em ~450 ms), sem
+        // teleporte: posição e ângulo interpolam do coldre à mão.
+        // Morto ou caído, a arma fica na mão (não volta ao coldre).
+        var holsterW = (dead || pose === 'fallen') ? 0 : (1 - sm.aimW);
+        var hipG = glbToGroup(rig, innerPos, pos.Hips, _gv6);
+        var holX = hipG.x - fwd * 0.20, holY = hipG.y - 0.16, holZ = hipG.z + 0.12;
+        if (P.holsterG){
+          P.holsterG.position.set(holX, holY, holZ);
+          P.holsterG.rotation.z = fwd * 0.25;
+        }
+        var handGX = wristG.x + px * 0.11 - gripWx, handGY = wristG.y + py * 0.11 - gripWy, handGZ = wristG.z + pz * 0.11 + 0.02;
+        var handGAng = gAng + (flip ? -rk : rk);
+        // a arma no coldre: cano para baixo, cabo para fora por cima
+        var gunHX = holX, gunHY = holY + 0.15, gunHZ = holZ;
+        var gunHAng = -Math.PI / 2 + fwd * 0.25;
+        var dAngH = gunHAng - handGAng;
+        while (dAngH > Math.PI) dAngH -= 2 * Math.PI;
+        while (dAngH < -Math.PI) dAngH += 2 * Math.PI;
+        P.gunG.position.set(handGX + (gunHX - handGX) * holsterW, handGY + (gunHY - handGY) * holsterW, handGZ + (gunHZ - handGZ) * holsterW);
+        P.gunG.rotation.z = handGAng + dAngH * holsterW;
         // spray de sangue 3D no ponto do impacto (quando houve tiro)
         if (trigHit){
           var impBone = trigHit === 'head' ? 'Head' : trigHit === 'belly' ? 'Torso' : trigHit === 'arm' ? 'LowerArm' + gunSide : trigHit === 'legs' ? 'UpperLeg' + gunSide : 'Chest';
@@ -4644,7 +4682,7 @@
         var tang = Math.atan2(sho.y - hip.y, sho.x - hip.x) - Math.PI / 2;
         P.belt.position.set(hip.x, hip.y, 0); P.belt.rotation.z = tang;
         P.buckle.position.set(hip.x + fwd * 0.20, hip.y, 0.115);
-        P.holster.position.set(hip.x - fwd * 0.20, hip.y - 0.06, -0.02); P.holster.rotation.z = fwd * 0.3;
+        P.holster.position.set(hip.x - fwd * 0.20, hip.y - 0.16, -0.02); P.holster.rotation.z = fwd * 0.25;
         springStep(SP.tail, fwd * 0.25 + (extra.walkSwing || 0) * 0.3 * Math.sin(now / 95 + 1), dt3, 60, 7);
         P.tail.position.set(hip.x - fwd * 0.20, hip.y - 0.10, -0.06);
         P.tail.rotation.z = SP.tail.x;
@@ -4670,12 +4708,26 @@
         P.brow2.rotation.z = expr === 'hurt' ? -0.3 : expr === 'stun' ? 0.35 : 0;
         if (P.smile) P.smile.visible = true;
         // --- revólver na mão: o cabo passa dentro da palma, a mão segura a arma ---
+        // (no menu e na contagem, a arma fica guardada no coldre e só
+        // sai para a mão no FIRE! — mesmo que no rig GLB; a volta é
+        // suave, ~450 ms, no ritmo do saque).
+        if (rig.holsterW == null) rig.holsterW = (G.phase === 'idle' || G.phase === 'countdown') ? 1 : 0;
+        var holTarget = (hpNow > 0 && poseNow !== 'fallen' && (G.phase === 'idle' || G.phase === 'countdown')) ? 1 : 0;
+        rig.holsterW += (holTarget - rig.holsterW) * Math.min(1, dt3 * 8);
         var gAng = flip ? (gun.a - Math.PI) : (-gun.a);
         var rk = SP.recoil.x * 0.06 + SP.armSwing.x * 0.08;
         var co = Math.cos(gAng), si = Math.sin(gAng);
         var gripWx = -0.06 * co + 0.09 * si, gripWy = -0.06 * si - 0.09 * co;
-        P.gunG.position.set(gunH.x - gripWx, gunH.y - gripWy, 0.05 + (gunH.z || 0));
-        P.gunG.rotation.z = gAng + (flip ? -rk : rk);
+        var handGX = gunH.x - gripWx, handGY = gunH.y - gripWy, handGZ = 0.05 + (gunH.z || 0);
+        var handGAng = gAng + (flip ? -rk : rk);
+        var gunHX = P.holster.position.x, gunHY = P.holster.position.y + 0.15, gunHZ = P.holster.position.z;
+        var gunHAng = -Math.PI / 2 + fwd * 0.25;
+        var dAngH = gunHAng - handGAng;
+        while (dAngH > Math.PI) dAngH -= 2 * Math.PI;
+        while (dAngH < -Math.PI) dAngH += 2 * Math.PI;
+        var hw = rig.holsterW || 0;
+        P.gunG.position.set(handGX + (gunHX - handGX) * hw, handGY + (gunHY - handGY) * hw, handGZ + (gunHZ - handGZ) * hw);
+        P.gunG.rotation.z = handGAng + dAngH * hw;
         P.hammerPivot.rotation.z = -0.5 - (extra.hammerP || 0) * 0.55;
         P.drumSpin.rotation.x = extra.cylRot || 0;
         // --- violão nas costas, com balanço de mola ---
