@@ -789,13 +789,28 @@
       }
       function shoulderPos(side, now){
         var fp = fallJointP(currentFallP(side, now), .10);
-        var sx = lerp(8, 20, fp), sy = lerp(230, 316, fp);
+        // v28: o ombro 2D tem que coincidir com o ombro 3D projetado na tela
+        // (medido no Chromium, câmera z 8,6): em pé, o ombro 3D está ~40 px
+        // para fora do pivô (you: 83,221; opp: 881,221) e o caído em
+        // (you: ~47,297; opp: ~918,297). Antes o ombro 2D ficava 40 px para
+        // dentro — o traço saía 73 px longe do cano e o braço e o tiro
+        // andavam em linhas paralelas. No caminho 2D (sem WebGL) valem os
+        // valores antigos, calibrados para o boneco desenhado.
+        var glb = (typeof GL !== 'undefined' && GL.useGLB);
+        var sx, sy;
+        if (glb){
+          sx = side === 'you' ? lerp(-32, -68, fp) : lerp(31, 68, fp);
+          sy = lerp(221, 297, fp);
+        } else {
+          sx = side === 'you' ? lerp(8, 20, fp) : lerp(-8, -20, fp);
+          sy = lerp(230, 316, fp);
+        }
         // agachado, o ombro desce junto com o corpo; pulando, sobe junto —
         // o braço, a mira e o cano acompanham, e o tiro sai da altura certa
         if (fp < 1){
-          sy += volCrouchP(side) * 26 - jumpLift(side, now);
+          sy += volCrouchP(side) * (glb ? 52 : 26) - jumpLift(side, now);
         }
-        return side === 'you' ? { x: X_YOU + sx, y: sy } : { x: X_OPP - sx, y: sy };
+        return { x: (side === 'you' ? X_YOU : X_OPP) + sx, y: sy };
       }
       function aimAngleFor(side){
         var sh = shoulderPos(side, performance.now());
@@ -812,7 +827,7 @@
         } else {
           // oponente: G.aimOpp.y guarda a altura em que o tiro dele cruza o seu lado
           var aimY = G.aimOpp.y * H;
-          a = Math.atan2(aimY - sh.y, Math.abs(X_YOU - sh.x));
+          a = Math.atan2(aimY - sh.y, Math.abs(bodyPlaneX('you') - sh.x));
         }
         // coice do revólver: logo após o tiro, o braço sobe por um instante
         // e a mira fica um pouco fora do lugar — atirar de novo na pressa sai torto
@@ -845,7 +860,7 @@
       function myImpactY(){
         var sh = shoulderPos('you', performance.now());
         var a = aimAngleFor('you');
-        var y = sh.y + Math.tan(a) * (X_OPP - sh.x);
+        var y = sh.y + Math.tan(a) * (bodyPlaneX('opp') - sh.x);
         return Math.max(-1200, Math.min(1740, y));
       }
       function muzzlePos(side){
@@ -854,16 +869,95 @@
         var dirx = side === 'you' ? Math.cos(a) : -Math.cos(a);
         return { x: sh.x + dirx * 84, y: sh.y + Math.sin(a) * 84 };
       }
+      // v28: o alvo 3D NÃO está no pivô X_YOU/X_OPP — o corpo projetado fica
+      // ~35–40 px para fora (cabeça opp em 893, quadril em 879, pivô 850).
+      // O tiro tem que cruzar o PLANO DO CORPO (quadril projetado), não o
+      // pivô, senão o traço para 36 px antes do peito e o sangue nasce no ar.
+      function bodyPlaneX(side){
+        try {
+          if (typeof GL !== 'undefined' && GL.useGLB && GL.rigs && GL.rigs[side] && GL.rigs[side].bones && GL.rigs[side].bones.Hips && GL.camera){
+            var v = new THREE.Vector3();
+            GL.rigs[side].bones.Hips.getWorldPosition(v);
+            var p = v.clone().project(GL.camera);
+            return (p.x * 0.5 + 0.5) * 960;
+          }
+        } catch (e) {}
+        return side === 'you' ? X_YOU : X_OPP;
+      }
+      // posição na tela do ponto atingido (para o traço terminar no corpo e
+      // o sangue nascer onde o tiro bateu): o osso da região, projetado.
+      function hitScreenPos(targetSide, zone, impactY){
+        var bx = null;
+        try {
+          if (typeof GL !== 'undefined' && GL.useGLB && GL.rigs && GL.rigs[targetSide] && GL.rigs[targetSide].bones && GL.camera){
+            var rig = GL.rigs[targetSide];
+            var bone = zone === 'head' ? 'Head' : (zone === 'chest' || zone === 'belly' || zone === 'body') ? 'Chest' : (zone === 'arm' ? null : 'Hips');
+            var b = bone ? rig.bones[bone] : null;
+            if (zone === 'arm'){ var wp = wristScreenPos(targetSide); bx = wp.x; }
+            if (b){
+              var v = new THREE.Vector3(); b.getWorldPosition(v);
+              var p = v.clone().project(GL.camera);
+              bx = (p.x * 0.5 + 0.5) * 960;
+            }
+          }
+        } catch (e) {}
+        if (bx == null) bx = targetSide === 'you' ? X_YOU : X_OPP;
+        return { x: bx, y: impactY };
+      }
+      // boca do cano na tela: a ponta do revólver 3D projetada (GLB) ou a
+      // boca 2D (reserva). O traço tem que sair do cano que se vê.
+      function muzzleScreenPos(side){
+        try {
+          if (typeof GL !== 'undefined' && GL.useGLB && GL.rigs && GL.rigs[side] && GL.rigs[side].parts && GL.rigs[side].parts.gunG && GL.camera){
+            var tip = new THREE.Vector3(0.30, 0, 0);
+            GL.rigs[side].parts.gunG.localToWorld(tip);
+            var p = tip.clone().project(GL.camera);
+            return { x: (p.x * 0.5 + 0.5) * 960, y: (-p.y * 0.5 + 0.5) * 540 };
+          }
+        } catch (e) {}
+        return muzzlePos(side);
+      }
+      // pulso da arma na tela: o osso do pulso do braço da arma, projetado.
+      // O braço 3D é dobrado no cotovelo — o pulso real fica ~30 px abaixo
+      // do que o modelo 2D reto (handPos: 48 px a partir do ombro) calcula.
+      // O bloqueio do braço e o ponto do acerto no braço usam o pulso de
+      // verdade; sem GLB, vale o handPos 2D, que é o mesmo modelo que o
+      // boneco desenhado usa.
+      function wristScreenPos(side){
+        try {
+          if (typeof GL !== 'undefined' && GL.useGLB && GL.rigs && GL.rigs[side] && GL.rigs[side].bones && GL.camera){
+            var rig = GL.rigs[side];
+            var b = rig.bones['Wrist' + (rig.flip ? 'L' : 'R')];
+            if (b){
+              var v = new THREE.Vector3(); b.getWorldPosition(v);
+              var p = v.clone().project(GL.camera);
+              return { x: (p.x * 0.5 + 0.5) * 960, y: (-p.y * 0.5 + 0.5) * 540 };
+            }
+          }
+        } catch (e) {}
+        return handPos(side, performance.now());
+      }
       function hitTestY(py, targetSide){
         var now = performance.now();
         var fallen = (targetSide === 'you' ? G.poseYou : G.poseOpp) === 'fallen';
         var h = charFor(targetSide).h;
+        // v28: as faixas têm que cobrir o corpo que se VÊ na tela (medido no
+        // Chromium, câmera z 8,6): em pé, cabeça 178–208, tronco 208–320,
+        // pernas 320–406 (pé em 405); caído, cabeça 254–285, tronco 285–383,
+        // pernas 383–418. Antes as faixas eram ~40 px mais altas que o corpo
+        // (a cabeça visível caía na faixa do tronco, o pé ficava fora de
+        // tudo e o céu acima da cabeça contava como tiro na cabeça). No
+        // caminho 2D (sem WebGL) valem as faixas antigas, calibradas para
+        // o boneco desenhado.
+        var glbB = (typeof GL !== 'undefined' && GL.useGLB);
         var base = fallen
-          ? [ { name:'head', dmg:45, y0:268, y1:304 }, { name:'body', dmg:25, y0:304, y1:348 }, { name:'legs', dmg:15, y0:348, y1:392 } ]
-          : [ { name:'head', dmg:45, y0:148, y1:202 }, { name:'body', dmg:25, y0:202, y1:318 }, { name:'legs', dmg:15, y0:318, y1:394 } ];
+          ? (glbB ? [ { name:'head', dmg:45, y0:254, y1:285 }, { name:'body', dmg:25, y0:285, y1:383 }, { name:'legs', dmg:15, y0:383, y1:418 } ]
+                  : [ { name:'head', dmg:45, y0:268, y1:304 }, { name:'body', dmg:25, y0:304, y1:348 }, { name:'legs', dmg:15, y0:348, y1:392 } ])
+          : (glbB ? [ { name:'head', dmg:45, y0:178, y1:208 }, { name:'body', dmg:25, y0:208, y1:320 }, { name:'legs', dmg:15, y0:320, y1:406 } ]
+                  : [ { name:'head', dmg:45, y0:148, y1:202 }, { name:'body', dmg:25, y0:202, y1:318 }, { name:'legs', dmg:15, y0:318, y1:394 } ]);
         // altura do personagem escala as faixas a partir do chão; encolhida
         // abaixa tudo e o pulo sobe tudo — as faixas seguem o corpo de verdade
-        var shift = Math.max(currentCrouchP(targetSide, now), volCrouchP(targetSide)) * 30 * (fallen ? 0 : 1);
+        var shift = Math.max(currentCrouchP(targetSide, now), volCrouchP(targetSide)) * (glbB ? 55 : 30) * (fallen ? 0 : 1);
         var lift = fallen ? 0 : jumpLift(targetSide, now);
         var bands = base.map(function(b){
           return { name: b.name, dmg: b.dmg,
@@ -886,12 +980,12 @@
         // registra a região: o boneco quadro a quadro reage com a sequência
         // própria daquela região (tronco, cabeça, braço ou perna)
         if (targetSide === 'you') G.hitZoneYou = zone; else G.hitZoneOpp = zone;
-        var targetX = targetSide === 'you' ? X_YOU : X_OPP;
+        var targetX = bodyPlaneX(targetSide); // v28: textos e poeira nascem no corpo, não no pivô
         if (zone === 'head'){
           // tiro na cabeça arranca o chapéu, que voa e cai na rua — nas cores do personagem atingido
           var fpH = fallJointP(currentFallP(targetSide, now), .10);
           var hc = charFor(targetSide);
-          var hx = targetX + (targetSide === 'you' ? 1 : -1) * lerp(10, 28, fpH);
+          var hx = hitScreenPos(targetSide, 'head', 0).x + (targetSide === 'you' ? 1 : -1) * lerp(10, 28, fpH);
           var hy = lerp(180, 280, fpH);
           if (targetSide === 'you') G.hatYouUntil = Infinity; else G.hatOppUntil = Infinity; // chapéu fica fora da cabeça até o fim da rodada (vídeo: não volta)
           effects.push({ kind:'hatfly', x: hx, y: hy - 22, born: now, until: Infinity,
@@ -939,15 +1033,37 @@
           if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 1500; G.dizzyAmpYou = 0.08; }
           else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 1500; G.dizzyAmpOpp = 0.08; }
         }
+        // DESVIO AO LEVAR O TIRO (v28): quem é atingido em pé tenta sair da
+        // linha do tiro — pula para trás ou abaixa num agachar rápido. É
+        // reação AO TIRO (a IA já desvia sozinha de vez em quando, mas
+        // nunca quando leva o tiro — por isso "não pula e nem agacha").
+        // Não vale para tiro na perna (ele já cai) nem para tiro fatal
+        // (a vida já acabou — applyHitEffect retornou antes). O desvio é
+        // local (crouchXUntil / jumpXAt, sem mensagem de rede): os dois
+        // lados processam o mesmo tiro e desviam juntos, cada um na sua
+        // tela. Não trava o próximo tiro: o pulo dura 620 ms, o agachar
+        // ~700 ms, e o atirador continua atirando normalmente.
+        if (G.phase === 'fire' && zone !== 'legs' && (targetSide === 'you' ? G.poseYou : G.poseOpp) !== 'fallen'){
+          var dUntil = targetSide === 'you' ? (G.dodgeYouUntil || 0) : (G.dodgeOppUntil || 0);
+          if (now >= dUntil && jumpLift(targetSide, now) <= 0 && Math.max(currentCrouchP(targetSide, now), volCrouchP(targetSide)) <= 0.05){
+            if (targetSide === 'you') G.dodgeYouUntil = now + 750; else G.dodgeOppUntil = now + 750;
+            if (Math.random() < 0.5){
+              if (targetSide === 'you') G.jumpYouAt = now; else G.jumpOppAt = now;
+            } else {
+              if (targetSide === 'you') G.crouchYouUntil = now + 700; else G.crouchOppUntil = now + 700;
+            }
+          }
+        }
       }
 
       /* ---------------- EFEITOS ---------------- */
       function addTracer(side, impactY, hit){
-        var g = muzzlePos(side);
+        var g = muzzleScreenPos(side);
         var sh = shoulderPos(side, performance.now());
-        var targetX = side === 'you' ? X_OPP : X_YOU;
+        var targetSide = side === 'you' ? 'opp' : 'you';
+        var targetX = bodyPlaneX(targetSide);
         var end;
-        if (hit){ end = { x: targetX, y: impactY }; }
+        if (hit){ var hp = hitScreenPos(targetSide, hit.name, impactY); end = { x: hp.x, y: hp.y }; }
         else {
           var edgeX = side === 'you' ? W - 4 : 4;
           var slope = (impactY - sh.y) / (targetX - sh.x);
@@ -1023,11 +1139,13 @@
         else {
           hit = hitTestY(impactY, isYou ? 'opp' : 'you');
           // o braço estendido fica na frente do tronco: tiro que cruza a mão é tiro no braço
+          // (v28: a mão é o PULSO DE VERDADE projetado — o modelo 2D reto
+          // errava ~30 px para cima e "bloqueava" tiro no alto do peito)
           if (hit && hit.name === 'body'){
             var tSide = isYou ? 'opp' : 'you';
-            var hp2 = handPos(tSide, now);
+            var hp2 = wristScreenPos(tSide);
             var shS = shoulderPos(side, now);
-            var yAtHand = shS.y + (impactY - shS.y) * ((hp2.x - shS.x) / (targetX - shS.x));
+            var yAtHand = shS.y + (impactY - shS.y) * ((hp2.x - shS.x) / (bodyPlaneX(tSide) - shS.x));
             if (Math.abs(yAtHand - hp2.y) < 16) hit = { name:'arm', dmg:18 };
           }
           if (hit && hit.name === 'body'){
@@ -1036,7 +1154,8 @@
             var tSideB = isYou ? 'opp' : 'you';
             var hb = charFor(tSideB).h;
             var fallenB = (tSideB === 'you' ? G.poseYou : G.poseOpp) === 'fallen';
-            var b0 = fallenB ? 304 : 202, b1 = fallenB ? 348 : 318;
+            var glbM = (typeof GL !== 'undefined' && GL.useGLB);
+            var b0 = fallenB ? (glbM ? 285 : 304) : (glbM ? 208 : 202), b1 = fallenB ? (glbM ? 383 : 348) : (glbM ? 320 : 318);
             var midB = GROUND - (GROUND - (b0 + b1) / 2) * hb;
             hit = { name: impactY < midB ? 'chest' : 'belly', dmg: 25 };
           }
@@ -1046,16 +1165,20 @@
         else { G.recoilOppAt = now; G.cylRotOpp += Math.PI / 3; }
         gunshot();
         var end = addTracer(side, impactY, hit);
-        var mz = muzzlePos(side);
+        var mz = muzzleScreenPos(side);
         // cápsula vazia voa para trás e cai no chão da rua, com o tilintar dela
         effects.push({ kind:'shell', x: mz.x - (isYou ? 16 : -16), y: mz.y - 4, born: now, until: now + 2800, dir: isYou ? -1 : 1, pinged:false });
         // fumaça do cano fica no ar e se desfaz devagar
         effects.push({ kind:'smoke', x: mz.x, y: mz.y, born: now, until: now + 1700, dir: isYou ? 1 : -1 });
         if (hit){
-          effects.push({ kind:'blood', x: targetX, y: impactY, born: now, until: now + 620, dir: isYou ? 1 : -1 });
+          // v28: o sangue, o texto do dano e o anel nascem NO CORPO atingido
+          // (osso da região projetado), não no pivô — antes nasciam 36 px
+          // para dentro, no ar, à esquerda do peito
+          var hitP = hitScreenPos(isYou ? 'opp' : 'you', hit.name, impactY);
+          effects.push({ kind:'blood', x: hitP.x, y: hitP.y, born: now, until: now + 620, dir: isYou ? 1 : -1 });
           // respingos no chão que FICAM até o fim da rodada (vídeo) —
           // atrás de quem levou o tiro, para não cobrir os pés
-          effects.push({ kind:'bloodground', x: targetX + (isYou ? 1 : -1) * (34 + Math.random() * 42), y: GROUND + 6, born: now, until: Infinity, seed: Math.random() });
+          effects.push({ kind:'bloodground', x: hitP.x + (isYou ? 1 : -1) * (34 + Math.random() * 42), y: GROUND + 6, born: now, until: Infinity, seed: Math.random() });
           // VIDA COM UM DONO SÓ: no online, só o anfitrião aplica dano e
           // pontos. O convidado mostra o acerto na hora (sangue, "-25",
           // som), mas a vida e os pontos só mudam quando o anfitrião
@@ -1078,8 +1201,8 @@
           if (isYou && !remote){ G.stats.hits++; G.roundHits++; }
           if (!isYou) flashDamage();
           hitSound();
-          addText(targetX, impactY - 16, '-' + hit.dmg, '#ff6b57');
-          addRing(targetX, impactY, '#ffcf5c');
+          addText(hitP.x, impactY - 16, '-' + hit.dmg, '#ff6b57');
+          addRing(hitP.x, impactY, '#ffcf5c');
           applyHitEffect(isYou ? 'opp' : 'you', hit.name, now);
           // pontos: dano vale mais com tiro rápido e em região difícil
           // (o convidado não soma aqui: os pontos dele chegam com o 'hp')
@@ -1093,7 +1216,7 @@
           // quase acertou: levanta poeira no pé e o alvo se encolhe por reflexo
           var tSide2 = isYou ? 'opp' : 'you';
           if (nearMissDist(impactY, tSide2) < 900){
-            var tX2 = isYou ? X_OPP : X_YOU;
+            var tX2 = bodyPlaneX(tSide2);
             effects.push({ kind:'dust', x: tX2 + (Math.random()*30-15), y: GROUND, born: now, until: now + 600 });
             if (tSide2 === 'you') G.crouchYouUntil = now + 620; else G.crouchOppUntil = now + 620;
             addText(tX2, 128, 'Passou raspando!', '#b97e10');
@@ -1232,6 +1355,7 @@
         G.recoilYouAt = 0; G.recoilOppAt = 0; G.hatYouUntil = 0; G.hatOppUntil = 0;
         G.crouchYouUntil = 0; G.crouchOppUntil = 0;
         G.crouchYou = false; G.crouchOpp = false; G.crouchPYou = 0; G.crouchPOpp = 0;
+        G.dodgeYouUntil = 0; G.dodgeOppUntil = 0; // v28: desvio ao levar tiro pode acontecer de novo na próxima rodada
         G.jumpYouAt = 0; G.jumpOppAt = 0; ai.crouchUntil = 0; ai.nextDodge = 0;
         G.armYouUntil = 0; G.armOppUntil = 0; G.stunYouUntil = 0; G.stunOppUntil = 0;
         G.deathYouAt = 0; G.deathOppAt = 0; G.staggerYouFrom = 0; G.staggerOppFrom = 0;
@@ -2398,6 +2522,16 @@
         if (t < 0.9) return 1 - 1.7 * ((t - 0.3) / 0.6);
         return -0.7 * (1 - (t - 0.9) / 0.4);
       }
+      // impacto do tiro: o corpo comprime para baixo e volta (o "peso" do
+      // tiro — antes o corpo só deslizava como um bloco rígido, daí o
+      // "bate numa caixa"). Envelope: 0→1 em 90 ms, volta a 0 em ~400 ms.
+      function squashEnv(at, now){
+        if (!at) return 0;
+        var t = (now - at) / 1000;
+        if (t < 0 || t > 0.4) return 0;
+        if (t < 0.09) return Math.sin(t / 0.09 * Math.PI / 2);
+        return 1 - (t - 0.09) / 0.31;
+      }
       /* ============================================================
          BONECO HUMANO 3D (arte própria, modelado em código)
          Refeito do zero para parecer um ser humano, não um manequim:
@@ -3544,14 +3678,15 @@
             if (Math.abs(C.SP.armSwing.x) > 0.02) swing = C.SP.armSwing.x * 0.06;
             if (Math.abs(C.SP.flail.x) > 0.02) flailS = C.SP.flail.x * 0.08;
           }
-          // o empurrão nunca joga o corpo quase na horizontal em pé:
-          // a inclinação para trás fica em no máximo ~9° (o arco
-          // exagerado do vídeo vinha do lean sem limite + o recuo)
+          // o empurrão nunca joga o corpo quase na horizontal em pé.
           // v27: teto 0,20->0,16 — o arco jogava a cabeça ~29 px para fora
-          // e ela saía da tela no pico do recuo com a câmera afastada;
-          // o arco continua bem visível (~15° no peito)
-          if (lean > 0.16) lean = 0.16;
-          if (lean < -0.16) lean = -0.16;
+          // e ela saía da tela no pico do recuo com a câmera afastada.
+          // v28: o arco volta a ser GRANDE (teto 0,26, ~15° de arco no
+          // tronco + chicote da cabeça) — o usuário disse que o boneco
+          // continua parecendo uma caixa; o assentado (pushRest 0,35)
+          // continua cabendo na tela, só o pico transitório encosta na borda.
+          if (lean > 0.26) lean = 0.26;
+          if (lean < -0.26) lean = -0.26;
           // a arma despenca quando o braço é atingido: o cotovelo dobra
           // mais e o ombro da arma cai (a mira treme junto, em aimAngleFor)
           var gunDroop = Math.abs(C.SP.armSwing.x) * 0.25;
@@ -3583,12 +3718,12 @@
           // limites da reação ao tiro: cabeça e peito para trás no
           // máximo ~20° cada (o corpo nunca fica quase na horizontal
           // em pé); a dobra para a frente (barriga) continua inteira
-          var headBend = 0.06 * poseW + leanEff * 1.8 + snap * 1.5 + foldF * 0.6 - 0.15 * cr + 0.15 * vic;
-          var chestBend = leanEff * 1.6 + 0.2 * cr + fold * 0.7 + 0.45 * vic;
+          var headBend = 0.06 * poseW + leanEff * 2.0 + snap * 1.8 + foldF * 0.6 - 0.25 * cr + 0.15 * vic;
+          var chestBend = leanEff * 1.8 + 0.35 * cr + fold * 0.7 + 0.45 * vic;
           var abdBend = fold * 0.5 + 0.25 * vic;
-          if (headBend < -0.35) headBend = -0.35; if (headBend > 0.65) headBend = 0.65;
-          if (chestBend < -0.35) chestBend = -0.35; if (chestBend > 0.75) chestBend = 0.75;
-          if (abdBend < -0.30) abdBend = -0.30; if (abdBend > 0.60) abdBend = 0.60;
+          if (headBend < -0.55) headBend = -0.55; if (headBend > 0.65) headBend = 0.65;
+          if (chestBend < -0.55) chestBend = -0.55; if (chestBend > 0.75) chestBend = 0.75;
+          if (abdBend < -0.45) abdBend = -0.45; if (abdBend > 0.60) abdBend = 0.60;
           glbBend(rig, 'LowerArm' + gunSide, AX_X, 0.28 * poseW + gunDroop);
           glbBend(rig, 'Wrist' + gunSide, AX_X, -0.28 * poseW);
           glbBend(rig, 'LowerArm' + supSide, AX_X, 0.12 * poseW + Math.abs(C.SP.flail.x) * 0.1 + fold * 0.4);
@@ -3635,24 +3770,25 @@
           var swayA = Math.sin((now / 2600) * Math.PI * 2 + (side === 'opp' ? 1.9 : 0)) * sm.swayW;
           var swScale = 1 - 0.6 * cr;
           var swL = 0.09 * swayA * swScale, swR = -0.09 * swayA * swScale;
-          glbBend(rig, 'LowerLegL', AX_X, 0.15 * poseW + 1.0 * cr - 2.0 * swL);
-          glbBend(rig, 'LowerLegR', AX_X, 0.15 * poseW + 1.0 * cr - 2.0 * swR);
+          glbBend(rig, 'LowerLegL', AX_X, 0.15 * poseW + 1.65 * cr - 2.0 * swL);
+          glbBend(rig, 'LowerLegR', AX_X, 0.15 * poseW + 1.65 * cr - 2.0 * swR);
           // agachar de verdade (agachamento, não joelhos): o clip
           // crouch sozinho quase não desce (a cabeça cai só ~0,07).
           // Ângulos medidos no harness (o AX_X das pernas é invertido:
-          // negativo leva o joelho para a frente): coxa -0,55 (joelho
-          // para a frente sobre os dedos), canela +1,0 (o tornozelo
-          // volta para trás do joelho, a canela inclina para trás —
-          // não horizontal como antes, quando parecia ajoelhado). O pé
-          // NÃO tem dobra fixa aqui — o achatamento dinâmico abaixo
-          // mede o pitch tornozelo→dedo e deixa a sola no chão.
-          // O tronco inclina um pouco para a frente (+0,2) e a cabeça
-          // compensa (-0,15) para continuar olhando o oponente.
+          // negativo leva o joelho para a frente): v28 — coxa -0,95
+          // (era -0,55: o agachar era raso, cabeça só 0,33 m / 29 px),
+          // canela +1,65 (era +1,0: o tornozelo volta para trás do
+          // joelho, a canela inclina para trás — não horizontal como
+          // antes, quando parecia ajoelhado). O pé NÃO tem dobra fixa
+          // aqui — o achatamento dinâmico abaixo mede o pitch
+          // tornozelo→dedo e deixa a sola no chão. O tronco inclina um
+          // pouco para a frente (+0,35) e a cabeça compensa (-0,25) para
+          // continuar olhando o oponente.
           // Não se baixa Hips.position.y: o quadril é pai das pernas,
           // baixar ele baixa os pés e a correção de chão sobe o corpo
           // de volta. Cabeça desce de ~2,83 para ~2,2.
-          glbBend(rig, 'UpperLegL', AX_X, -0.55 * cr + swL);
-          glbBend(rig, 'UpperLegR', AX_X, -0.55 * cr + swR);
+          glbBend(rig, 'UpperLegL', AX_X, -0.95 * cr + swL);
+          glbBend(rig, 'UpperLegR', AX_X, -0.95 * cr + swR);
           glbBend(rig, 'Head', AX_X, headBend);
           glbBend(rig, 'Chest', AX_X, chestBend);
           glbBend(rig, 'Abdomen', AX_X, abdBend);
@@ -4296,18 +4432,25 @@
           // recuo é um soco: ~50 px em 2–4 quadros e fica deslocado.
           // Agora o impulso é forte e a mola dura (k=150): o pico chega
           // em ~130 ms e a cabeça vai mais que o tronco.
-          var mag = hz === 'head' ? 8.0 : hz === 'chest' ? 7.0 : hz === 'belly' ? 4.5 : hz === 'legs' ? 3.0 : 3.0;
+          // v28: a reação voltou a ser GRANDE (o usuário: "parece uma caixa").
+          // Na v27 o recuo foi domado (teto 0,5→0,3, amortecimento 12→15,
+          // arco 0,20→0,16) e a câmera afastou (bonecos 16% menores) — o
+          // recuo visível encolheu. O impulso volta a ser um soco, o arco
+          // volta a dobrar o tronco e a cabeça chicoteia; o corpo ainda
+          // comprime no impacto (squashAt) em vez de só deslizar como bloco.
+          var mag = hz === 'head' ? 9.0 : hz === 'chest' ? 8.0 : hz === 'belly' ? 5.5 : hz === 'legs' ? 3.5 : 3.5;
           SP.push.v += -fwd * mag;                          // corpo empurrado para trás
           // recuo que fica: o corpo não volta todo para o lugar —
           // cada acerto empurra o "repouso" da mola para trás (no
           // vídeo, o boneco fica deslocado e o vão entre os dois
           // cresce ~10%). Cap para não sair do lugar do duelo.
-          SP.pushRest = Math.max(-0.3, Math.min(0.3, SP.pushRest - fwd * 0.20)); // v27: recuo que fica menor (0,20/acerto, teto 0,3) para abrir folga nas bordas com a câmera afastada; o pico (impulso) não muda
-          if (hz === 'head') SP.headSnap.v += 8;             // cabeça chicoteia para trás
-          if (hz === 'arm') SP.armSwing.v += (Math.random() < .5 ? -1 : 1) * 6; // braço jogado para o lado
+          SP.pushRest = Math.max(-0.35, Math.min(0.35, SP.pushRest - fwd * 0.22));
+          rig.squashAt = stFrom; // o corpo comprime para baixo no impacto
+          if (hz === 'head') SP.headSnap.v += 11;            // cabeça chicoteia para trás
+          if (hz === 'arm') SP.armSwing.v += (Math.random() < .5 ? -1 : 1) * 8; // braço jogado para o lado
           // tiro no peito, na cabeça ou na barriga joga o braço LIVRE
           // para fora (o corpo se abre no impacto)
-          if (hz === 'head' || hz === 'chest' || hz === 'belly') SP.flail.v += fwd * 2.5;
+          if (hz === 'head' || hz === 'chest' || hz === 'belly') SP.flail.v += fwd * 3.5;
           if (hz === 'belly' || hz === 'chest') rig.foldAt = stFrom; // peito e barriga: o corpo dobra para frente ~45° (vídeo), cabeça baixa, braço estendido para frente/baixo — depois recua
           rig.trigHit = hz; // gatilho da máquina de estados 3D (clip por região)
           rig.stainZone = hz; // mancha de sangue na roupa, na região atingida
@@ -4317,10 +4460,10 @@
           rig.lastDeathAt = dAt;
           var dz = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
           if (dz === 'body') dz = 'chest';
-          var dm = dz === 'head' ? 6.0 : dz === 'chest' ? 5.5 : dz === 'belly' ? 4.0 : 2.5;
+          var dm = dz === 'head' ? 7.0 : dz === 'chest' ? 6.5 : dz === 'belly' ? 5.0 : 3.0;
           SP.push.v += -fwd * dm;                             // morte: o corpo continua indo para trás
-          SP.pushRest = Math.max(-0.3, Math.min(0.3, SP.pushRest - fwd * 0.20)); // v27: recuo que fica menor (0,20/acerto, teto 0,3) para abrir folga nas bordas com a câmera afastada; o pico (impulso) não muda; cai onde parou
-          if (dz === 'head') SP.headSnap.v += 9;
+          SP.pushRest = Math.max(-0.35, Math.min(0.35, SP.pushRest - fwd * 0.22));
+          if (dz === 'head') SP.headSnap.v += 12;
           rig.trigDeath = dz; // gatilho da máquina de estados 3D (clip de queda de morte)
         }
         // perna atingida: quando o corpo começa a cair, a perna da frente já
@@ -4328,7 +4471,7 @@
         if (poseNow === 'fallen' && rig.lastPose !== 'fallen'){
           SP.flail.v += fwd * 3.5;
           SP.push.v += -fwd * 2.5;
-          SP.pushRest = Math.max(-0.3, Math.min(0.3, SP.pushRest - fwd * 0.20)); // v27: recuo que fica menor (0,20/acerto, teto 0,3) para abrir folga nas bordas com a câmera afastada; o pico (impulso) não muda; cai onde parou
+          SP.pushRest = Math.max(-0.35, Math.min(0.35, SP.pushRest - fwd * 0.22));
           rig.trigFall = true; // gatilho da máquina de estados 3D (perna cede e senta)
         }
         rig.lastPose = poseNow;
@@ -4337,6 +4480,7 @@
         springStep(SP.armSwing, 0, dt3, 90, 8);
         springStep(SP.flail, 0, dt3, 70, 6);
         var fold = foldEnv(rig.foldAt, now);
+        var sqHit = squashEnv(rig.squashAt, now) * 0.6; // compressão do impacto (v28)
         // --- aterrissagem do pulo: o corpo comprime e levanta poeira, uma vez por pulo ---
         var jl = extra.jumpLift || 0;
         if ((rig.lastLift || 0) > 0.05 && jl <= 0.001){
@@ -4351,7 +4495,7 @@
           else if (ltL < 560) landSq = Math.sin((ltL - 260) / 300 * Math.PI) * 0.28; // segundo quique, menor
         }
         var dipSq = jl < 0 ? (-jl / JUMP_H) * 0.9 : 0; // agachamento do pulo comprime o corpo, pés no chão
-        var sq = Math.max(extra.squash || 0, landSq, dipSq);
+        var sq = Math.max(extra.squash || 0, landSq, dipSq, sqHit);
         // --- posição do grupo: pulo (nunca afunda), passo do andar, empurrão do tiro ---
         var wsw = extra.walkSwing || 0;
         var wph = now / 95;
