@@ -71,6 +71,16 @@
         font-weight:600; font-size:.95rem; text-align:center; max-width:92%; display:none;
       }
       .stage-msg.show{display:block}
+      /* etapa 4: campo de nome + botão SALVAR PONTUAÇÃO sobre o painel de fim de partida */
+      /* (min-height:0 anula o min-height:2.75rem global de botões/inputs, senão o
+         bloco fica alto demais e cobre a lista do ranking desenhada no canvas) */
+      .save-score{position:absolute; left:31.5%; top:26%; width:37%; z-index:3; display:none; flex-direction:column; gap:.35rem}
+      .save-score.show{display:flex}
+      .save-score .row{display:flex; align-items:center; gap:.45rem}
+      .save-score label{color:#333; font-weight:700; font-size:.85rem; white-space:nowrap}
+      .save-score input{flex:1; min-width:0; min-height:0; height:2rem; box-sizing:border-box; padding:.3rem .5rem; font-size:.95rem; border:1.5px solid #9a9a8a; border-radius:.5rem; background:#fff; color:#222}
+      .save-score button{min-height:0; height:2.1rem; box-sizing:border-box; padding:0 .6rem; font-size:.95rem; font-weight:700; border:none; border-radius:.6rem; background:#1d7a38; color:#fff; cursor:pointer}
+      .save-score button:disabled{background:#6a9a78; cursor:default}
       .dmg-flash{position:absolute; inset:0; pointer-events:none; opacity:0;
         background:radial-gradient(ellipse at center, transparent 55%, rgba(179,38,30,.55) 100%);
         transition:opacity .5s ease}
@@ -230,6 +240,13 @@
             <div class="gl-msg" id="glbMsg" style="top:44px"></div>
             <div class="dmg-flash" id="dmgFlash"></div>
             <div class="stage-msg" id="stageMsg"></div>
+            <div class="save-score" id="saveScoreBox">
+              <div class="row">
+                <label for="saveName">Seu nome:</label>
+                <input type="text" id="saveName" maxlength="14" placeholder="Seu nome" autocomplete="off" />
+              </div>
+              <button id="saveScoreBtn" type="button">SALVAR PONTUAÇÃO</button>
+            </div>
           </div>
           <div class="move-btns" aria-label="Ações de defesa">
             <button class="mv" id="crouchBtn" type="button">⬇ Agachar<small>segurar — tecla S ou ↓</small></button>
@@ -595,6 +612,7 @@
         reactYou: 0, reactOpp: 0,   // tempo de reação do 1º tiro da rodada (ms após o FIRE!)
         stats: { shots: 0, hits: 0, bestReact: 0 },
         shakeUntil: 0,
+        shakeDur: 0, // duração do tremor atual (o fatal dura 400 ms; o normal, 180 ms)
         clockOffset: null,     // online: relógio do convidado − relógio do anfitrião (ms)
         rtt: 0,
         hoverCyl: false,       // mouse sobre o tambor de balas: a contagem só anda assim
@@ -622,6 +640,7 @@
         goSent: false,                        // anfitrião: já avisou o "vai" desta tentativa de contagem
         countReady: false,                    // a contagem pode andar neste quadro (os dois prontos, no online)
         roundShots: 0, roundHits: 0,          // tiros/acertos desta rodada (bônus da tela ROUND COMPLETE)
+        shellsThisRound: 0,                   // cartuchos no chão nesta rodada (etapa 7a: no máximo 6)
         hpSeq: 0,                            // anfitrião: versão do estado oficial de vida/pontos/balas da rodada
         hpSeen: 0,                           // convidado: última versão do estado oficial aceita nesta rodada
         shotSeq: 0,                          // contador local de tiros da rodada (id único da mensagem de tiro)
@@ -641,14 +660,65 @@
         // v = velocidade inicial do deslize (px/s), a = atrito do chao (px/s^2),
         // lift = altura do "voo" ao levar o tiro (unidades de mundo, 1 = 80 px),
         // tilt = inclinacao para tras no ar (rad)
-        head:  { v: 230, a: 480, lift: 0.16, tilt: 0.26 },
-        chest: { v: 200, a: 480, lift: 0.14, tilt: 0.22 },
-        belly: { v: 140, a: 480, lift: 0.07, tilt: 0.12 },
+        head:  { v: 460, a: 640, lift: 0.60, tilt: 1.00 },
+        chest: { v: 420, a: 640, lift: 0.55, tilt: 0.95 },
+        belly: { v: 300, a: 620, lift: 0.30, tilt: 0.55 },
         legs:  { v:  60, a: 480, lift: 0,    tilt: 0 },
-        arm:   { v: 110, a: 480, lift: 0.03, tilt: 0.05 }
+        arm:   { v: 200, a: 560, lift: 0.20, tilt: 0.20 }
       };
+      /* v31: MODO CLÁSSICO = o duelo do jogo 2. Sem rótulos flutuantes, sem risco de tiro,
+         sem esquiva/atordoamento extras: saque rápido só no FIRE!, tiro, queda.
+         Para voltar ao estilo antigo, mude para false. */
+      var CLASSIC = true;
+      var DRAW_MS = CLASSIC ? 170 : 450;   // tempo do saque (jogo 2: ~0,15 s)
       var PHYS_BLOOD = { gravity: 1500, maxStains: 700, poolSeconds: 4.2, poolRadius: 0.50 };
       var PHYS_HAT = { gravity: 1500, bounce: 0.38, friction: 6 };
+      // pose final da morte (etapa 1a/1c): base por região do tiro +
+      // sorteio por morte. sh = ombro (abre o braço p/ o lado, AX_Z),
+      // el = cotovelo (AX_X), hip = quadril (AX_X), kn = joelho (AX_X);
+      // jit = desvio sorteado em cada morte (rad). A pose é sorteada
+      // UMA vez (drawDeathPose) e aplicada como ângulo final fixo —
+      // nunca somada quadro a quadro, então não treme.
+      var PHYS_DEATH_POSE = {
+        head:  { shL: 0.55, shR: 0.70, elL: 0.50, elR: 0.25, hipL: 0.15, hipR: -0.10, knL: 0.35, knR: 0.15, jit: 0.25 },
+        chest: { shL: 0.80, shR: 0.85, elL: 0.30, elR: 0.45, hipL: 0.10, hipR: 0.20, knL: 0.25, knR: 0.40, jit: 0.25 },
+        belly: { shL: 0.35, shR: 0.30, elL: 0.90, elR: 0.80, hipL: 0.45, hipR: 0.35, knL: 0.70, knR: 0.55, jit: 0.25 },
+        legs:  { shL: 0.70, shR: 0.60, elL: 0.20, elR: 0.35, hipL: 0.10, hipR: 0.55, knL: 0.15, knR: 0.85, jit: 0.30 },
+        arm:   { shL: 0.60, shR: 0.15, elL: 0.40, elR: 0.95, hipL: 0.15, hipR: 0.05, knL: 0.30, knR: 0.20, jit: 0.25 }
+      };
+      function drawDeathPose(zone){
+        var P = PHYS_DEATH_POSE[zone] || PHYS_DEATH_POSE.chest;
+        var j = P.jit;
+        function rz(v){ return v + (Math.random() * 2 - 1) * j; }
+        var p = { zone: zone, shL: rz(P.shL), shR: rz(P.shR), elL: rz(P.elL), elR: rz(P.elR),
+          hipL: rz(P.hipL), hipR: rz(P.hipR), knL: rz(P.knL), knR: rz(P.knR) };
+        if (Math.random() < 0.5){ // espelha os braços: a mesma região não cai igual duas vezes
+          var t; t = p.shL; p.shL = p.shR; p.shR = t; t = p.elL; p.elL = p.elR; p.elR = t;
+        }
+        return p;
+      }
+      // arma caída (etapa 1b): um passo da física da arma solta, no
+      // espaço do grupo (o chão é y ~= 0,02, como a poça de sangue).
+      // release=true no quadro em que a mão abre; depois a arma cai
+      // com gravidade, gira um pouco e fica no chão até o reset.
+      // Devolve true quando a arma já está solta (o chamador pula o
+      // posicionamento normal mão/coldre e usa rig.gunDrop).
+      function gunDropStep(rig, dt, x, y, z, ang, fwd, release){
+        if (!rig.gunDrop && !release) return false;
+        if (!rig.gunDrop){
+          rig.gunDrop = { x: x, y: y, z: z, vx: fwd * (0.5 + Math.random() * 0.6), vy: 0.4 + Math.random() * 0.6,
+            vz: (Math.random() - 0.5) * 0.4, ang: ang, angV: (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2.5), landed: false };
+        }
+        var gd = rig.gunDrop;
+        if (!gd.landed){
+          gd.vy -= 9.8 * dt;
+          gd.x += gd.vx * dt; gd.y += gd.vy * dt; gd.z += gd.vz * dt;
+          gd.ang += gd.angV * dt;
+          gd.vx *= Math.max(0, 1 - 1.2 * dt); gd.vz *= Math.max(0, 1 - 1.2 * dt);
+          if (gd.y <= 0.06){ gd.y = 0.06; gd.landed = true; }
+        }
+        return true;
+      }
 
       // chao de sangue: uma textura transparente colada no chao 3D
       var STAIN = { cv:null, cx:null, tex:null, mesh:null, list:[], pools:[], dirty:false, W:1536, H:384 };
@@ -687,6 +757,7 @@
         STAIN.list.length = 0; STAIN.pools.length = 0; STAIN.dirty = true;
         if (STAIN.cx) STAIN.cx.clearRect(0, 0, STAIN.W, STAIN.H);
         if (STAIN.tex) STAIN.tex.needsUpdate = true;
+        clearBodyStains(); // manchas no corpo somem junto com as do chão, na rodada nova
       }
       function addStain(xw, zw, r, speed, sx, sy){
         if (STAIN.list.length >= PHYS_BLOOD.maxStains) STAIN.list.shift();
@@ -737,7 +808,10 @@
         var ppx = STAIN.W / STAIN_XW, ppz = STAIN.H / STAIN_ZW;
         STAIN.pools.forEach(function(p){
           if (!p.r) return;
-          drawPoolShape(c, (p.x - STAIN_X0) * ppx, (p.z - STAIN_Z0) * ppz, p.r * ppx, p.seed, 0.90);
+          // escurece com o tempo: fresca e mais clara, depois quase opaca
+          var age = Math.max(0, (now - p.t0) / 1000);
+          var a = Math.min(0.95, 0.55 + age * 0.10);
+          drawPoolShape(c, (p.x - STAIN_X0) * ppx, (p.z - STAIN_Z0) * ppz, p.r * ppx, p.seed, a);
         });
         c.fillStyle = 'rgba(105,10,8,0.88)';
         STAIN.list.forEach(function(st){
@@ -785,6 +859,11 @@
         try { startPool0(side, now); } catch (e) {}
       }
       function startPool0(side, now){
+        // uma poça por morte: o segundo tiro no corpo que já está morrendo
+        // não pode criar outra poça nem tocar o som da queda de novo
+        for (var i = 0; i < STAIN.pools.length; i++){
+          if (STAIN.pools[i].side === side && !STAIN.pools[i].done) return;
+        }
         setTimeout(function(){ try { corpseThud(); } catch (e) {} }, 780);
         STAIN.pools.push({ side: side, t0: now + 520, x: 0, z: 0, r: 0, scale: 0.85 + Math.random() * 0.3, seed: Math.random(), done: false });
       }
@@ -800,15 +879,18 @@
         var P = PHYS_DEATH[z] || PHYS_DEATH.chest;
         var t = (now - at) / 1000;
         var tt = Math.min(t, P.v / P.a);
-        var dx = (P.v * tt - 0.5 * P.a * tt * tt) * S3;
+        var dx = Math.min(0.30, (P.v * tt - 0.5 * P.a * tt * tt) * S3); // pouco espaço até a borda da tela: o resto do impulso vira voo e giro
         var dy = 0, tilt = 0;
         if (P.lift > 0){
-          var T = 0.38;
-          if (t < T){ var u = t / T; dy = P.lift * 4 * u * (1 - u); tilt = P.tilt * Math.sin(Math.PI * u); }
-          var t2 = t - 0.78; // quique curto quando o corpo bate no chao
-          if (t2 > 0 && t2 < 0.26){ var u2 = t2 / 0.26; dy += P.lift * 0.22 * 4 * u2 * (1 - u2); }
+          var T = 0.28 + 0.22 * Math.min(1, P.lift); // voo: ~0,5 s para tiro forte
+          if (t < T){ var u = t / T; dy = P.lift * 4 * u * (1 - u); tilt = P.tilt * Math.sin(Math.PI * u * 0.5); }
+          else if (t < T + 0.9){ tilt = P.tilt * Math.exp(-(t - T) * 5); } // o giro se desfaz ao bater no chão
+          var t2 = t - (T + 0.02); // quique curto quando o corpo bate no chão
+          if (t2 > 0 && t2 < 0.24){ var u2 = t2 / 0.24; dy += P.lift * 0.10 * 4 * u2 * (1 - u2); }
         }
-        return { dx: dx, dy: dy, tilt: tilt };
+        // o giro é em torno do QUADRIL (não dos pés): os pés sobem e vão para a frente, a cabeça vai para trás
+        var HIP = 1.2, px = HIP * Math.sin(tilt), py = HIP * (1 - Math.cos(tilt));
+        return { dx: dx, dy: dy + py, tilt: tilt, px: px };
       }
       var ai = { nextShot: 0, aimTarget: {x:.26,y:.5}, nextWander: 0, level: 0 };
       var DIFF = {
@@ -855,7 +937,12 @@
         var f = el('dmgFlash');
         f.classList.add('hit');
         setTimeout(function(){ f.classList.remove('hit'); }, 90);
-        G.shakeUntil = performance.now() + 180;
+        G.shakeUntil = performance.now() + 180; G.shakeDur = 180;
+      }
+      // tremor de câmera só no tiro fatal (etapa 7d): ~0,4 s, amplitude
+      // pequena e decrescente — no MODO CLÁSSICO não há outro tremor
+      function fatalShake(now){
+        G.shakeUntil = now + 400; G.shakeDur = 400;
       }
 
       /* ---------------- GEOMETRIA / ACERTO ----------------
@@ -1211,7 +1298,7 @@
         if (hp <= 0) return; // caiu de vez: o desenho cuida do corpo no chão
         if (zone === 'arm'){
           // tiro no braço do gatilho: a mira treme por alguns segundos
-          if (targetSide === 'you') G.armYouUntil = now + 4500; else G.armOppUntil = now + 4500;
+          if (!CLASSIC){ if (targetSide === 'you') G.armYouUntil = now + 4500; else G.armOppUntil = now + 4500; }
           setStagger(targetSide, now, 350);
           addText(targetX, 210, 'Braço ferido!', '#e8a33d');
         } else if (zone === 'legs'){
@@ -1220,9 +1307,9 @@
             if (targetSide === 'you'){ G.poseYou = 'fallen'; G.poseYouAt = now; }
             else { G.poseOpp = 'fallen'; G.poseOppAt = now; }
             fallSound();
-            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now, until: now + 650 });
+            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now, until: now + 1400, dur: 1400 });
             // segunda nuvem de poeira quando o corpo bate no chão, no fim da queda
-            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 400, until: now + 1050 });
+            effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 400, until: now + 1800, dur: 1400 });
             addText(targetX, 238, 'Caiu!', '#e8a33d');
           } else {
             setStagger(targetSide, now, 400);
@@ -1231,8 +1318,8 @@
           // tiro no peito: o peito recua, o corpo é empurrado para trás
           setStagger(targetSide, now, 520);
           // mira instável por um instante (o peito empurrado desalinha o braço)
-          if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 700; G.dizzyAmpYou = 0.04; }
-          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 700; G.dizzyAmpOpp = 0.04; }
+          if (!CLASSIC){ if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 700; G.dizzyAmpYou = 0.04; }
+          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 700; G.dizzyAmpOpp = 0.04; } }
           addText(targetX, 210, 'No peito!', '#e8a33d');
         } else if (zone === 'belly'){
           // tiro na barriga: o corpo dobra para frente, depois recua
@@ -1241,11 +1328,11 @@
         } else if (zone === 'head'){
           // tiro na cabeça: além do chapéu voando, atordoa — não consegue atirar por um instante
           setStagger(targetSide, now, 700);
-          if (targetSide === 'you') G.stunYouUntil = now + 800; else G.stunOppUntil = now + 800;
+          if (!CLASSIC){ if (targetSide === 'you') G.stunYouUntil = now + 800; else G.stunOppUntil = now + 800; }
           // mira tonta/balançando por ~1,5 s (cambaleia): balanço lento e
           // grande, bem diferente do tremor rápido do braço ferido
-          if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 1500; G.dizzyAmpYou = 0.08; }
-          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 1500; G.dizzyAmpOpp = 0.08; }
+          if (!CLASSIC){ if (targetSide === 'you'){ G.dizzyYouAt = now; G.dizzyYouUntil = now + 1500; G.dizzyAmpYou = 0.08; }
+          else { G.dizzyOppAt = now; G.dizzyOppUntil = now + 1500; G.dizzyAmpOpp = 0.08; } }
         }
         // DESVIO AO LEVAR O TIRO (v28): quem é atingido em pé tenta sair da
         // linha do tiro — pula para trás ou abaixa num agachar rápido. É
@@ -1257,7 +1344,7 @@
         // lados processam o mesmo tiro e desviam juntos, cada um na sua
         // tela. Não trava o próximo tiro: o pulo dura 620 ms, o agachar
         // ~700 ms, e o atirador continua atirando normalmente.
-        if (G.phase === 'fire' && zone !== 'legs' && (targetSide === 'you' ? G.poseYou : G.poseOpp) !== 'fallen'){
+        if (!CLASSIC && G.phase === 'fire' && zone !== 'legs' && (targetSide === 'you' ? G.poseYou : G.poseOpp) !== 'fallen'){
           var dUntil = targetSide === 'you' ? (G.dodgeYouUntil || 0) : (G.dodgeOppUntil || 0);
           if (now >= dUntil && jumpLift(targetSide, now) <= 0 && Math.max(currentCrouchP(targetSide, now), volCrouchP(targetSide)) <= 0.05){
             if (targetSide === 'you') G.dodgeYouUntil = now + 750; else G.dodgeOppUntil = now + 750;
@@ -1283,11 +1370,12 @@
           var slope = (impactY - sh.y) / (targetX - sh.x);
           end = { x: edgeX, y: sh.y + slope * (edgeX - sh.x) };
         }
-        effects.push({ kind:'tracer', x1:g.x, y1:g.y, x2:end.x, y2:end.y, until: performance.now()+110 });
+        if (!CLASSIC) effects.push({ kind:'tracer', x1:g.x, y1:g.y, x2:end.x, y2:end.y, until: performance.now()+110 });
         effects.push({ kind:'flash', x:g.x, y:g.y, until: performance.now()+90 });
         return end;
       }
       function addText(x, y, txt, color){
+        if (CLASSIC) return;
         // rótulos flutuantes nunca se sobrepõem: cada texto novo sobe
         // 26 px por texto já ativo (o defeito do vídeo: "Na barriga!"
         // duas vezes no mesmo lugar, "Na barriga! Braço ferido!" um
@@ -1298,6 +1386,7 @@
         effects.push({ kind:'text', x:x, y:y, txt:txt, color:color, born: performance.now(), until: performance.now()+1100 });
       }
       function addRing(x, y, color){
+        if (CLASSIC) return;
         effects.push({ kind:'ring', x:x, y:y, color:color, born: performance.now(), until: performance.now()+450 });
       }
 
@@ -1380,8 +1469,12 @@
         gunshot();
         var end = addTracer(side, impactY, hit);
         var mz = muzzleScreenPos(side);
-        // cápsula vazia voa para trás e cai no chão da rua, com o tilintar dela
-        effects.push({ kind:'shell', x: mz.x - (isYou ? 16 : -16), y: mz.y - 4, born: now, until: now + 2800, dir: isYou ? -1 : 1, pinged:false });
+        // cápsula vazia voa para trás e cai no chão da rua, com o tilintar dela;
+        // fica no chão até o fim da rodada (etapa 7a) — no máximo 6 por rodada
+        if (G.shellsThisRound < 6){
+          G.shellsThisRound++;
+          effects.push({ kind:'shell', x: mz.x - (isYou ? 16 : -16), y: mz.y - 4, born: now, until: Infinity, dir: isYou ? -1 : 1, pinged:false });
+        }
         // fumaça do cano fica no ar e se desfaz devagar
         effects.push({ kind:'smoke', x: mz.x, y: mz.y, born: now, until: now + 1700, dir: isYou ? 1 : -1 });
         if (hit){
@@ -1407,19 +1500,20 @@
             // trocar de repente para o desenho de caído
             var tSideD = isYou ? 'opp' : 'you';
             if ((isYou ? G.hpOpp : G.hpYou) <= 0){
-              if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); }
-              if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); }
-              effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1250 });
+              if (tSideD === 'you' && !G.deathYouAt){ G.deathYouAt = now; deathSound(); fatalShake(now); }
+              if (tSideD === 'opp' && !G.deathOppAt){ G.deathOppAt = now; deathSound(); fatalShake(now); }
+              effects.push({ kind:'dust', x: targetX, y: GROUND, born: now + 560, until: now + 1960, dur: 1400 }); // etapa 7b: poeira do impacto cresce e some em ~1,4 s
               spawnBloodSpray(hitP.x, hitP.y, isYou ? 1 : -1, hit.name, now, true);
               startPool(tSideD, now);
             }
           }
           if (isYou && !remote){ G.stats.hits++; G.roundHits++; }
-          if (!isYou) flashDamage();
+          if (!isYou && !CLASSIC) flashDamage();
           hitSound();
           addText(hitP.x, impactY - 16, '-' + hit.dmg, '#ff6b57');
           addRing(hitP.x, impactY, '#ffcf5c');
           applyHitEffect(isYou ? 'opp' : 'you', hit.name, now);
+          addBodyStain(isYou ? 'opp' : 'you', hit.name, hit.dmg); // sangue na roupa/pele, na região do tiro, até o fim da rodada
           // pontos: dano vale mais com tiro rápido e em região difícil
           // (o convidado não soma aqui: os pontos dele chegam com o 'hp')
           var react = isYou ? G.reactYou : G.reactOpp;
@@ -1431,7 +1525,7 @@
           if (end.y > GROUND - 6) effects.push({ kind:'dust', x: end.x, y: GROUND, born: now, until: now + 500 });
           // quase acertou: levanta poeira no pé e o alvo se encolhe por reflexo
           var tSide2 = isYou ? 'opp' : 'you';
-          if (nearMissDist(impactY, tSide2) < 900){
+          if (!CLASSIC && nearMissDist(impactY, tSide2) < 900){
             var tX2 = bodyPlaneX(tSide2);
             effects.push({ kind:'dust', x: tX2 + (Math.random()*30-15), y: GROUND, born: now, until: now + 600 });
             if (tSide2 === 'you') G.crouchYouUntil = now + 620; else G.crouchOppUntil = now + 620;
@@ -1500,6 +1594,9 @@
         G.endHandled = true;
         G.phase = 'roundEnd';
         G.winner = w;
+        // etapa 5 (item 6): marca o fim da rodada — o vencedor mira o
+        // caído só ~1 s e depois guarda a arma e comemora (glbDriveState)
+        G.roundEndAt = performance.now();
         // quem venceu e estava caído (tiro na perna) se levanta no fim
         // da rodada: o vencedor fica em pé na pose de vitória, nunca
         // sentado no chão enquanto o painel está na tela
@@ -1546,7 +1643,8 @@
         G.btnNext = null; G.btnMenu = null; // sem retângulo velho da tela ROUND COMPLETE
         var youWon = G.scoreYou > G.scoreOpp;
         G.rank = null;
-        if (G.mode === 'cpu'){ try { G.rank = rankingAdd(G.youName, G.pointsYou, youWon); } catch (e) { G.rank = null; } }
+        G.savedScore = false; // etapa 4: nada salvo ainda — o jogador salva com o nome (ou sai e salva sozinho)
+        if (G.mode === 'cpu') showSaveScoreBox(); else hideSaveScoreBox();
         showMsg(youWon ? '🏆 Você venceu o duelo!' : 'O oponente venceu o duelo.', 6000);
         renderHUD();
         if (G.mode === 'online' && G.role === 'host') el('startOnlineBtn').disabled = !connOpen();
@@ -1578,8 +1676,9 @@
         G.armYouUntil = 0; G.armOppUntil = 0; G.stunYouUntil = 0; G.stunOppUntil = 0;
         G.deathYouAt = 0; G.deathOppAt = 0; G.staggerYouFrom = 0; G.staggerOppFrom = 0;
         G.hitZoneYou = ''; G.hitZoneOpp = '';
-        G.walkT0 = 0; G.deathGraceUntil = 0;
+        G.walkT0 = 0; G.deathGraceUntil = 0; G.roundEndAt = 0; // etapa 5: sem fim de rodada velho na rodada nova
         if (G.deathGraceTimer){ clearTimeout(G.deathGraceTimer); G.deathGraceTimer = null; }
+        G.shellsThisRound = 0; G.shakeUntil = 0; G.shakeDur = 0; // etapa 7: cartuchos e tremor não passam para a rodada nova
         effects.length = 0; // chapéu no chão e respingos somem na rodada nova
         clearStains();
         if (typeof GL !== 'undefined' && GL.rigs){
@@ -1645,6 +1744,7 @@
       }
 
       function startMatch(){
+        hideSaveScoreBox();
         G.scoreYou = 0; G.scoreOpp = 0; G.round = 1;
         G.pointsYou = 0; G.pointsOpp = 0;
         G.stats = { shots: 0, hits: 0, bestReact: 0 };
@@ -1657,10 +1757,18 @@
         // cada personagem tem velocidade e erro próprios; a dificuldade escala os dois
         var base = charFor('opp').ai;
         var d = DIFF[el('difficulty').value] || DIFF.normal;
-        var lvl = Math.min(G.scoreYou, 3); // fica mais rápido conforme você vence rodadas
-        ai.react = Math.max(240, Math.round(base.react * (d.react / 620)) - lvl * 70);
-        ai.interval = Math.max(280, Math.round(base.interval * (d.interval / 560)) - lvl * 50);
-        ai.spread = Math.max(20, Math.round(base.spread * (d.spread / 62)) - lvl * 6);
+        // nível da rodada: 0 na rodada 1, 8 na rodada 9 — o oponente fica
+        // mais rápido e mais preciso a cada rodada da campanha (só no modo
+        // CPU; no online o oponente é uma pessoa e a IA nem existe)
+        var lvl = Math.min(G.round - 1, 8);
+        ai.level = lvl;
+        // reação cai ~6% por nível, intervalo entre tiros ~5% e erro de
+        // mira ~7% — com tetos para a rodada 9 continuar vencível: nunca
+        // instantâneo (reação mínima 150 ms) e nunca perfeito (erro mínimo
+        // de 14 px, então a IA sempre erra alguns tiros)
+        ai.react = Math.max(150, Math.round(base.react * (d.react / 620) * (1 - 0.06 * lvl)));
+        ai.interval = Math.max(200, Math.round(base.interval * (d.interval / 560) * (1 - 0.05 * lvl)));
+        ai.spread = Math.max(14, Math.round(base.spread * (d.spread / 62) * (1 - 0.07 * lvl)));
         ai.nextShot = 0; ai.nextWander = 0;
         ai.aimTarget = { x: .26, y: .5 };
       }
@@ -1670,7 +1778,7 @@
         // proteger — agachado, a cabeça dele some da sua mira; pulando,
         // as pernas somem, mas a mira dele fica pior
         if (!ai.nextDodge) ai.nextDodge = now + 2200 + Math.random() * 2800;
-        if (now >= ai.nextDodge){
+        if (!CLASSIC && now >= ai.nextDodge){
           ai.nextDodge = now + 2600 + Math.random() * 3600;
           var dr = Math.random();
           if (dr < .38){ setCrouch('opp', true); ai.crouchUntil = now + 500 + Math.random() * 500; }
@@ -2210,6 +2318,10 @@
         ctx.fillStyle = colors.shirt; ctx.beginPath(); ctx.arc(gun.h[0] - gd[0] * 6, gun.h[1] - gd[1] * 6, 6, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = colors.skin; ctx.beginPath(); ctx.arc(gun.h[0], gun.h[1], 6.4, 0, Math.PI*2); ctx.fill();
         drawRevolver(gun.h, gun.a, extra.hammerP || 0, extra.cylRot || 0);
+        // manchas de sangue na roupa/pele (etapa 2, caminho 2D de
+        // reserva): desenhadas nas juntas do quadro atual, então
+        // acompanham agachar, pulo, queda e morte como o resto da figura
+        drawBodyStains2D(j, side);
         ctx.restore();
       }
       /* Billy Poeira: o conjunto de sequências dele, com o desenho genérico acima */
@@ -2510,6 +2622,139 @@
         });
         g.visible = false;
         return g;
+      }
+      /* Sangue NO CORPO (etapa 2): mancha de sangue na roupa/pele, na
+         região do tiro, que fica até o fim da rodada. Uma mancha por
+         tiro, até 3 por região — o 4º tiro na mesma região só faz a
+         maior mancha crescer (nunca dezenas de manchas soltas).
+         Tamanho proporcional ao dano: cabeça (45) maior que perna (15).
+         Os registros vivem em BODYSTAIN (sem depender do rig 3D): o
+         caminho 3D cria as malhas a partir deles e as reposiciona a
+         cada quadro nas juntas do corpo (agacha, pula, cai ou morre
+         junto); o caminho 2D de reserva desenha as manchas no mesmo
+         lugar, nas juntas da figura 2D. A limpeza é no mesmo reset
+         que limpa as manchas do chão (clearStains). */
+      var BODYSTAIN = { you: [], opp: [] };
+      var BODYSTAIN_MAX_ZONE = 3;    // no máximo 3 manchas por região
+      var BODYSTAIN_MAX_SCALE = 2.2; // teto do crescimento por repetição
+      function bodyStainScale(dmg){ return 0.55 + (dmg || 25) / 45; } // 45→1,55 · 25→1,10 · 18→0,95 · 15→0,88
+      function addBodyStain(side, zone, dmg){
+        try { addBodyStain0(side, zone, dmg); } catch (e) {}
+      }
+      function addBodyStain0(side, zone, dmg){
+        var list = BODYSTAIN[side]; if (!list) return;
+        if (zone === 'body') zone = 'chest';
+        // última região atingida no rig (o harness e o código antigo leem rig.stainZone)
+        try { if (typeof GL !== 'undefined' && GL.rigs && GL.rigs[side]) GL.rigs[side].stainZone = zone; } catch (e) {}
+        var same = list.filter(function(s){ return s.zone === zone; });
+        if (same.length >= BODYSTAIN_MAX_ZONE){
+          // região já cheia: a maior mancha cresce um pouco, sem criar outra
+          var big = same[0];
+          same.forEach(function(s){ if (s.scale > big.scale) big = s; });
+          big.scale = Math.min(BODYSTAIN_MAX_SCALE, big.scale * 1.15);
+          return;
+        }
+        var jit = zone === 'head' ? 0.03 : 0.05; // desvio para não empilhar exato
+        list.push({ zone: zone, dmg: dmg || 25, scale: bodyStainScale(dmg),
+          jx: (Math.random() * 2 - 1) * jit, jy: (Math.random() * 2 - 1) * jit, mesh: null });
+      }
+      function clearBodyStains(){
+        ['you','opp'].forEach(function(sd){
+          BODYSTAIN[sd].forEach(function(s){
+            if (s.mesh && s.mesh.parent) s.mesh.parent.remove(s.mesh);
+            s.mesh = null;
+          });
+          BODYSTAIN[sd].length = 0;
+        });
+      }
+      // posição da mancha no corpo, na região atingida, a partir das
+      // juntas do quadro atual (mesma conta nos 3 caminhos 3D e no 2D)
+      function bodyStainPos(zone, j, fwd){
+        if (zone === 'head') return { x: j.head.x, y: j.head.y };
+        if (zone === 'chest') return { x: (j.hip.x + j.sho.x) / 2, y: j.sho.y - 0.08 };
+        if (zone === 'belly') return { x: (j.hip.x + j.sho.x) / 2, y: (j.hip.y + j.sho.y) / 2 };
+        if (zone === 'arm') return { x: j.sho.x + fwd * 0.25, y: j.sho.y };
+        return { x: j.kneeF.x, y: j.kneeF.y }; // legs
+      }
+      // caminho 3D: garante uma malha por registro (cria quando falta,
+      // volta para o grupo novo se o rig foi trocado) e a prende ao
+      // grupo do personagem, no OSSO da região — ela acompanha
+      // agachar, pulo, queda e morte e fica visível até o fim da
+      // rodada, mesmo caído ou morto
+      function syncBodyStains3D(rig, P, j, fwd, side){
+        if (!rig || !rig.group || !P) return;
+        var list = BODYSTAIN[side] || [];
+        list.forEach(function(s, idx){
+          if (idx === 0 && P.bloodStain){
+            // a mancha única antiga vira a primeira mancha da lista (o
+            // harness e o código antigo leem P.bloodStain.visible)
+            if (s.mesh && s.mesh !== P.bloodStain && s.mesh.parent) s.mesh.parent.remove(s.mesh);
+            s.mesh = P.bloodStain;
+          }
+          if (!s.mesh){
+            s.mesh = makeBloodStain3D();
+            rig.group.add(s.mesh);
+          }
+          if (s.mesh.parent !== rig.group) rig.group.add(s.mesh);
+          s.mesh.scale.setScalar(s.scale); // cresce se a região levou tiro repetido
+          var sp = bodyStainPos3D(rig, s.zone, j, fwd);
+          // z acompanha o osso (+0,22 para fora da superfície): quando o
+          // corpo dobra para a câmera, o osso avança em z e a mancha iria
+          // ficar DENTRO do corpo, invisível — com o z fixo em 0,22 isso
+          // acontecia ao agachar (osso z 0,24→0,38)
+          s.mesh.position.set(sp.x + s.jx, sp.y + s.jy, (sp.z || 0) + 0.22);
+          s.mesh.visible = true;
+        });
+        if (!list.length && P.bloodStain) P.bloodStain.visible = false;
+      }
+      // posição da mancha no corpo, na região atingida: do OSSO da
+      // região (o corpo renderizado de verdade) quando há esqueleto
+      // GLB — as juntas do amostrador 2D não coincidem com os ossos
+      // do clip (a cabeça chicoteia no tiro, o corpo cai na morte), e
+      // a mancha ficava flutuando no ar. No rig procedural (sem
+      // ossos), as juntas do amostrador SÃO o corpo desenhado.
+      function bodyStainPos3D(rig, zone, j, fwd){
+        var bones = rig.bones;
+        if (bones){
+          var bp = function(n){
+            var b = bones[n]; if (!b) return null;
+            var v = new THREE.Vector3(); b.getWorldPosition(v);
+            return rig.group.worldToLocal(v);
+          };
+          var hd = bp('Head'), ch = bp('Chest'), hp = bp('Hips');
+          if (zone === 'head' && hd) return { x: hd.x, y: hd.y, z: hd.z };
+          if (zone === 'chest' && ch) return { x: ch.x, y: ch.y, z: ch.z };
+          if (zone === 'belly' && ch && hp) return { x: (hp.x + ch.x) / 2, y: (hp.y + ch.y) / 2, z: (hp.z + ch.z) / 2 };
+          if (zone === 'arm'){
+            var sh = bp('ShoulderR') || ch;
+            if (sh) return { x: sh.x + fwd * 0.25, y: sh.y, z: sh.z };
+          }
+          if (zone === 'legs'){
+            var kn = bp('LowerLegR') || bp('LowerLegL') || hp;
+            if (kn) return { x: kn.x, y: kn.y, z: kn.z };
+          }
+        }
+        return bodyStainPos(zone, j, fwd); // reserva: juntas do amostrador (z 0 → mancha a 0,22)
+      }
+      // caminho 2D de reserva: desenha as manchas nas juntas da figura
+      // 2D do quadro atual (mesmo espaço transformado do resto do corpo)
+      function bodyStainPos2D(zone, j){
+        if (zone === 'head') return j.head;
+        if (zone === 'chest') return [(j.hip[0] + j.sho[0]) / 2, j.sho[1] - 10];
+        if (zone === 'belly') return [(j.hip[0] + j.sho[0]) / 2, (j.hip[1] + j.sho[1]) / 2];
+        if (zone === 'arm') return [j.sho[0] + 22, j.sho[1]]; // +x local é sempre para frente (o flip já foi aplicado)
+        return j.kneeF; // legs
+      }
+      function drawBodyStains2D(j, side){
+        var list = BODYSTAIN[side]; if (!list || !list.length) return;
+        ctx.fillStyle = 'rgba(161,24,18,0.9)';
+        list.forEach(function(s){
+          var p = bodyStainPos2D(s.zone, j);
+          var r = 9 * s.scale, px = p[0] + s.jx * 100, py = p[1] + s.jy * 100;
+          ctx.beginPath(); ctx.ellipse(px, py, r, r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(px + r * 0.9, py + r * 0.3, r * 0.55, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(px - r * 0.8, py - r * 0.35, r * 0.45, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+        });
       }
       function sphU3(material){ // esfera unitária (raio 1), para as barrigas de músculo
         var m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), material);
@@ -3589,6 +3834,7 @@
         if (!rig) return;
         if (rig.parts && rig.parts.bloodStain) rig.parts.bloodStain.visible = false;
         rig.stainZone = null;
+        rig.deathPose = null; rig.gunDrop = null; // pose sorteada e arma caída somem na rodada nova
         if (!rig.mixer) return;
         rig.sm = null;
         if (rig.springs){ rig.springs.pushRest = 0; rig.springs.push.x = 0; rig.springs.push.v = 0; }
@@ -3773,7 +4019,7 @@
       // one-shot: ação curta que assume a base por um instante (saque,
       // tiro, reação, pulo) e depois devolve para a base da situação.
       // Se o mesmo one-shot dispara de novo, reinicia do zero.
-      function glbSetOneShot(rig, name, now, fade){
+      function glbSetOneShot(rig, name, now, fade, speed){
         var act = rig.clipActions[name];
         if (!act) return false;
         var sm = rig.sm;
@@ -3788,7 +4034,8 @@
           act.reset();
           act.play();
         }
-        sm.oneShot = { name: name, endAt: now + act.getClip().duration * 1000 };
+        act.setEffectiveTimeScale(speed || 1);
+        sm.oneShot = { name: name, endAt: now + act.getClip().duration * 1000 / (speed || 1) };
         return true;
       }
       // máquina de estados das animações do modelo humano (MPFB): o
@@ -3810,8 +4057,8 @@
         var crouchP = extra.crouchP || 0;
         var jumpL = extra.jumpLift || 0;
         // vitória: no fim da rodada (vencedor da rodada) e no fim do
-        // duelo (vencedor do duelo) — o vencedor fica em pé, curvado
-        // mirando o caído, nunca com o braço para o céu
+        // duelo (vencedor do duelo) — ~1 s mirando o caído, depois
+        // guarda a arma no coldre e comemora (ver a situação abaixo)
         var celeb = ((G.phase === 'roundEnd' && G.winner === side) || (G.phase === 'matchEnd' && (side === 'you' ? G.scoreYou > G.scoreOpp : G.scoreOpp > G.scoreYou)));
         var phase = G.phase;
         // --- consome os gatilhos (marcados em updateFig3D) ---
@@ -3823,6 +4070,14 @@
         var trigJump = jumpAt && jumpAt !== sm.lastJumpAt;
         if (trigJump) sm.lastJumpAt = jumpAt;
         if (trigDeath){ sm.oneShot = null; sm.deathFromGround = (pose === 'fallen'); }
+        // pose final da morte (etapa 1a/1c): sorteada UMA vez por morte,
+        // na primeira vez que o morto aparece — o reset da rodada limpa
+        // (glbResetRig), então a próxima morte sorteia de novo
+        if (dead && !rig.deathPose){
+          var dz2 = side === 'you' ? G.hitZoneYou : G.hitZoneOpp;
+          if (dz2 === 'body') dz2 = 'chest';
+          rig.deathPose = drawDeathPose(dz2);
+        }
         // --- situação (a base, sem os one-shots) ---
         var situation, base, aimTarget = 0;
         if (phase === 'idle'){ situation = 'menu'; base = 'idle'; aimTarget = 0; }
@@ -3834,7 +4089,22 @@
         else if (phase === 'countdown'){ situation = walkP < 1 ? 'walk' : 'ready'; base = walkP < 1 ? 'walk' : 'idle'; aimTarget = 0; }
         else if (crouchP > 0.5){ situation = 'crouch'; base = 'crouch_' + gunSide; aimTarget = 1; }
         else if (walkP < 1){ situation = 'walk'; base = 'walk'; aimTarget = 0; }
-        else if (celeb){ situation = 'celebrate'; base = 'combat_' + gunSide; aimTarget = 1; }
+        else if (celeb){
+          // etapa 5 (item 6): o vencedor NÃO fica a rodada inteira
+          // curvado mirando o caído — ~1 s mirando, enquanto o painel
+          // ROUND COMPLETE aparece com o fade, depois guarda a arma
+          // no coldre (aimTarget 0: a arma desliza de volta sem
+          // teleporte, como o saque ao contrário) e comemora com o
+          // clip 'wave' que já existe no GLB (os dois modelos têm).
+          // Sem 'wave', fica em pé normal com a arma guardada.
+          // No fim do duelo (matchEnd) já passou 1 s, então entra
+          // direto guardado e comemorando.
+          var celebT = G.roundEndAt ? (now - G.roundEndAt) : 9999;
+          situation = 'celebrate';
+          if (celebT < 1000){ base = 'combat_' + gunSide; aimTarget = 1; }
+          else if (rig.clipActions && rig.clipActions['wave']){ base = 'wave'; aimTarget = 0; }
+          else { base = 'idle'; aimTarget = 0; }
+        }
         else { situation = 'combat'; base = 'combat_' + gunSide; aimTarget = 1; }
         // --- one-shots (morto não reage, só cai) ---
         if (!dead){
@@ -3855,7 +4125,7 @@
           // tenta de novo no próximo quadro até o saque sair.
           if (phase === 'countdown') sm.drawDone = false;
           if (situation === 'combat' && phase === 'fire' && !sm.drawDone && !sm.oneShot){
-            if (glbSetOneShot(rig, 'draw_' + gunSide, now, 0.1)){ sm.drawAt = now; sm.drawDone = true; }
+            if (glbSetOneShot(rig, 'draw_' + gunSide, now, CLASSIC ? 0.03 : 0.1, 450 / DRAW_MS)){ sm.drawAt = now; sm.drawDone = true; }
           }
         }
         sm.lastSituation = situation;
@@ -3887,9 +4157,10 @@
         // --- mira (rampa suave para o alvo; no saque, entra aos poucos) ---
         var effAim = aimTarget;
         if (sm.oneShot && sm.oneShot.name.indexOf('draw_') === 0){
-          effAim = Math.min(1, Math.max(0, (now - sm.drawAt) / 450));
+          effAim = Math.min(1, Math.max(0, (now - sm.drawAt) / DRAW_MS));
         }
-        sm.aimW += (effAim - sm.aimW) * Math.min(1, dt3 * 10);
+        var aimRate = (sm.oneShot && sm.oneShot.name.indexOf('draw_') === 0 && CLASSIC) ? 40 : 10;
+        sm.aimW += (effAim - sm.aimW) * Math.min(1, dt3 * aimRate);
         if (Math.abs(sm.aimW - effAim) < 0.01) sm.aimW = effAim;
         var W = glbCurrentWorld(rig);
         var pos = glbCurrentPos(rig, W);
@@ -3953,9 +4224,15 @@
           var foldF = Math.max(0, fold);
           var leanEff = lean * (foldF > 0.05 ? 0.15 : 1);
           // vitória: sem reação de tiro — o vencedor não arqueia para
-          // trás no fim da rodada; em vez disso, curva para a frente
-          // mirando o caído (como o vencedor do vídeo original)
-          var vic = (situation === 'celebrate') ? 1 : 0;
+          // trás no fim da rodada. A curva para a frente mirando o
+          // caído só vale no instante inicial (~1 s); depois de
+          // guardar a arma ele fica em pé, ereto, comemorando — a
+          // inclinação sai em rampa suave (vicW), junto com o
+          // crossfade para o clip de comemoração, sem tranco.
+          var vicTarget = (situation === 'celebrate' && aimTarget > 0) ? 1 : 0;
+          if (sm.vicW == null) sm.vicW = 0;
+          sm.vicW += (vicTarget - sm.vicW) * Math.min(1, dt3 * 4);
+          var vic = sm.vicW;
           if (vic){ leanEff = 0; snap = 0; swing = 0; flailS = 0; }
           // limites da reação ao tiro: cabeça e peito para trás no
           // máximo ~20° cada (o corpo nunca fica quase na horizontal
@@ -4105,6 +4382,27 @@
               if (hd && rig.info.restLocalQ['Hand' + sd]) hd.quaternion.copy(rig.info.restLocalQ['Hand' + sd]);
             });
           }
+        }
+        // pose final da morte (etapa 1a/1c): a pose sorteada entra em
+        // rampa no fim da queda (deathP 0,5→1) e fica como ângulo FINAL
+        // FIXO até o fim da rodada — glbBend aplica o total, sem
+        // acumular, então o corpo caído fica estável, sem tremer.
+        // O flail do braço livre continua somado enquanto a mola decai.
+        if (situation === 'dead' && rig.deathPose){
+          var dp = rig.deathPose;
+          var dpW = Math.min(1, Math.max(0, (deathP - 0.5) / 0.5));
+          var dpElGun = dp.zone === 'arm' ? 0.95 : (gunSide === 'R' ? dp.elR : dp.elL);
+          var dpShGun = dp.zone === 'arm' ? 0.10 : (gunSide === 'R' ? dp.shR : dp.shL);
+          var dpElFree = supSide === 'R' ? dp.elR : dp.elL;
+          var dpShFree = supSide === 'R' ? dp.shR : dp.shL;
+          glbBend(rig, 'Shoulder' + gunSide, AX_Z, dpShGun * dpW);
+          glbBend(rig, 'Shoulder' + supSide, AX_Z, dpShFree * dpW + flailS);
+          glbBend(rig, 'LowerArm' + gunSide, AX_X, dpElGun * dpW);
+          glbBend(rig, 'LowerArm' + supSide, AX_X, dpElFree * dpW);
+          glbBend(rig, 'UpperLegL', AX_X, dp.hipL * dpW);
+          glbBend(rig, 'UpperLegR', AX_X, dp.hipR * dpW);
+          glbBend(rig, 'LowerLegL', AX_X, dp.knL * dpW);
+          glbBend(rig, 'LowerLegR', AX_X, dp.knR * dpW);
         }
         // a postura mudou os ossos: recalcula as posições para o chão e os adereços
         W = glbCurrentWorld(rig);
@@ -4380,8 +4678,18 @@
         var dAngH = gunHAng - handGAng;
         while (dAngH > Math.PI) dAngH -= 2 * Math.PI;
         while (dAngH < -Math.PI) dAngH += 2 * Math.PI;
-        P.gunG.position.set(handGX + (gunHX - handGX) * holsterW, handGY + (gunHY - handGY) * holsterW, handGZ + (gunHZ - handGZ) * holsterW);
-        P.gunG.rotation.z = handGAng + dAngH * holsterW;
+        // arma cai da mão ao morrer (etapa 1b): a mão abre quando o
+        // corpo bate no chão (deathP>=0,6); a arma cai com gravidade e
+        // fica no chão até o fim da rodada. Só a do MORTO cai — a do
+        // vencedor continua na mão dele. O reset da rodada limpa
+        // (glbResetRig) e a arma volta ao coldre na contagem.
+        if (gunDropStep(rig, dt3, handGX, handGY, handGZ, handGAng, fwd, dead && deathP >= 0.6)){
+          P.gunG.position.set(rig.gunDrop.x, rig.gunDrop.y, rig.gunDrop.z);
+          P.gunG.rotation.z = rig.gunDrop.ang;
+        } else {
+          P.gunG.position.set(handGX + (gunHX - handGX) * holsterW, handGY + (gunHY - handGY) * holsterW, handGZ + (gunHZ - handGZ) * holsterW);
+          P.gunG.rotation.z = handGAng + dAngH * holsterW;
+        }
         // spray de sangue 3D no ponto do impacto (quando houve tiro)
         if (trigHit){
           var impBone = trigHit === 'head' ? 'Head' : trigHit === 'belly' ? 'Torso' : trigHit === 'arm' ? 'LowerArm' + gunSide : trigHit === 'legs' ? 'UpperLeg' + gunSide : 'Chest';
@@ -4400,22 +4708,20 @@
         // poça de sangue quando caído ou morto
         P.blood.visible = (pose === 'fallen') || dead;
         P.blood.position.set(wX3(C.cx) + C.SP.push.x + xShift, 0.015, 0.15); // poça fica embaixo do corpo, que recuou (e do deslocamento para caber na tela)
-        // mancha de sangue na roupa, na região atingida — fica até o fim
-        // da rodada (vídeo); some quando cai ou morre (a poça cobre)
-        if (P.bloodStain){
-          var stZ2 = rig.stainZone, dead4 = (C.side === 'you' ? G.hpYou : G.hpOpp) <= 0;
-          P.bloodStain.visible = !!stZ2 && C.poseNow !== 'fallen' && !dead4;
-          if (stZ2){
-            var sp2 = stZ2 === 'head' ? C.head : stZ2 === 'chest' ? { x:(C.hip.x + C.sho.x) / 2, y: C.sho.y - 0.08 } : stZ2 === 'belly' ? { x:(C.hip.x + C.sho.x) / 2, y:(C.hip.y + C.sho.y) / 2 } : stZ2 === 'arm' ? { x: C.sho.x + C.fwd * 0.25, y: C.sho.y } : C.kneeF;
-            P.bloodStain.position.set(sp2.x, sp2.y, 0.22);
-          }
-        }
+        // manchas de sangue na roupa/pele (etapa 2): uma por tiro, na
+        // região atingida, presas ao corpo — ficam até o fim da rodada,
+        // mesmo caído ou morto
+        syncBodyStains3D(rig, P, { head: C.head, hip: C.hip, sho: C.sho, kneeF: C.kneeF }, C.fwd, C.side);
         // poeira quando o corpo bate no chão (queda e morte)
         if (pose === 'fallen'){
           var ft = now - (C.poseAtNow || now);
-          if (ft >= 560 && ft < 640 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
+          // sem teto (etapa 7b): a 60 fps o 1º quadro ≥560 ms é o
+          // mesmo de antes; em quadros lentos (segundos por quadro) o
+          // instante pode pular a janela inteira — dispara no 1º quadro
+          // depois do impacto, mesmo que tarde, em vez de nunca disparar
+          if (ft >= 560 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
         } else rig.fallBurstDone = false;
-        if (dead && deathP >= 0.75 && deathP < 0.95 && !sm.deathBurstDone){ sm.deathBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
+        if (dead && deathP >= 0.75 && !sm.deathBurstDone){ sm.deathBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
         if (!dead) sm.deathBurstDone = false;
       }
       // direção no espaço do modelo a partir de dois pontos amostrados
@@ -4642,20 +4948,15 @@
         var dead = (C.side === 'you' ? G.hpYou : G.hpOpp) <= 0;
         P.blood.visible = fallen || dead;
         P.blood.position.set(wX3(C.cx) + SP.push.x, 0.015, 0.15); // poça fica embaixo do corpo, que recuou
-        // mancha de sangue na roupa, na região atingida — fica até o fim
-        // da rodada (vídeo); some quando cai ou morre (a poça cobre)
-        if (P.bloodStain){
-          var stZ3 = rig.stainZone;
-          P.bloodStain.visible = !!stZ3 && !fallen && !dead;
-          if (stZ3){
-            var sp3 = stZ3 === 'head' ? J.head : stZ3 === 'chest' ? { x:(J.hip.x + J.sho.x) / 2, y: J.sho.y - 0.08 } : stZ3 === 'belly' ? { x:(J.hip.x + J.sho.x) / 2, y:(J.hip.y + J.sho.y) / 2 } : stZ3 === 'arm' ? { x: J.sho.x + C.fwd * 0.25, y: J.sho.y } : J.kneeF;
-            P.bloodStain.position.set(sp3.x, sp3.y, 0.22);
-          }
-        }
-        // poeira 3D quando o corpo bate no chão (uma vez por queda)
+        // manchas de sangue na roupa/pele (etapa 2): uma por tiro, na
+        // região atingida, presas ao corpo — ficam até o fim da rodada,
+        // mesmo caído ou morto
+        syncBodyStains3D(rig, P, J, C.fwd, C.side);
+        // poeira 3D quando o corpo bate no chão (uma vez por queda) —
+        // sem teto (etapa 7b): ver o outro gatilho igual a este
         if (C.poseNow === 'fallen'){
           var ft = now - (C.poseAtNow || now);
-          if (ft >= 560 && ft < 640 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
+          if (ft >= 560 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(C.cx), 0.15); }
         } else rig.fallBurstDone = false;
       }
       function updateFig3D(side, cx, flip, colors, angle, now, seed, hatOff, extra){
@@ -4719,7 +5020,6 @@
           if (hz === 'head' || hz === 'chest' || hz === 'belly') SP.flail.v += fwd * 3.5;
           if (hz === 'belly' || hz === 'chest') rig.foldAt = stFrom; // peito e barriga: o corpo dobra para frente ~45° (vídeo), cabeça baixa, braço estendido para frente/baixo — depois recua
           rig.trigHit = hz; // gatilho da máquina de estados 3D (clip por região)
-          rig.stainZone = hz; // mancha de sangue na roupa, na região atingida
         }
         var dAt = side === 'you' ? G.deathYouAt : G.deathOppAt;
         if (dAt && dAt !== rig.lastDeathAt){
@@ -4751,7 +5051,7 @@
         var jl = extra.jumpLift || 0;
         if ((rig.lastLift || 0) > 0.05 && jl <= 0.001){
           rig.landAt = now;
-          if (typeof effects !== 'undefined') effects.push({ kind:'dust', x: cx, y: GROUND, born: now, until: now + 650 });
+          if (typeof effects !== 'undefined') effects.push({ kind:'dust', x: cx, y: GROUND, born: now, until: now + 1400, dur: 1400 });
         }
         rig.lastLift = jl;
         var landSq = 0;
@@ -4766,7 +5066,7 @@
         var wsw = extra.walkSwing || 0;
         var wph = now / 95;
         var ck = corpseKin(side, now); // v29: impulso da morte (deslize no chão)
-        g.position.set(wX3(cx) + Math.sin(wph) * 0.03 * wsw + SP.push.x * 1.0 - fwd * ck.dx, Math.max(0, extra.hop || 0) * S3 + Math.abs(Math.cos(wph)) * 0.02 * wsw, 0);
+        g.position.set(wX3(cx) + Math.sin(wph) * 0.03 * wsw + SP.push.x * 1.0 - fwd * ck.dx + fwd * (ck.px || 0), Math.max(0, extra.hop || 0) * S3 + Math.abs(Math.cos(wph)) * 0.02 * wsw, 0);
         g.scale.set(1 + 0.10 * sq, 1 - 0.16 * sq, 1);
         // --- juntas em unidades de mundo ---
         function mp(p){ return { x: (flip ? -p[0] : p[0]) * S3, y: (GROUND - p[1]) * hh * S3, z: 0 }; }
@@ -4970,24 +5270,19 @@
         var dead = (side === 'you' ? G.hpYou : G.hpOpp) <= 0;
         P.blood.visible = fallen || dead;
         P.blood.position.set(wX3(cx) + SP.push.x, 0.015, 0.15); // poça fica embaixo do corpo, que recuou
-        // mancha de sangue na roupa, na região atingida — fica até o fim
-        // da rodada (vídeo); some quando cai ou morre (a poça cobre)
-        if (P.bloodStain){
-          var stZ = rig.stainZone, dead3 = (side === 'you' ? G.hpYou : G.hpOpp) <= 0;
-          P.bloodStain.visible = !!stZ && poseNow !== 'fallen' && !dead3;
-          if (stZ){
-            var sp = stZ === 'head' ? head : stZ === 'chest' ? { x:(hip.x + sho.x) / 2, y: sho.y - 0.08 } : stZ === 'belly' ? { x:(hip.x + sho.x) / 2, y:(hip.y + sho.y) / 2 } : stZ === 'arm' ? { x: sho.x + fwd * 0.25, y: sho.y } : kneeF;
-            P.bloodStain.position.set(sp.x, sp.y, 0.22);
-          }
-        }
+        // manchas de sangue na roupa/pele (etapa 2): uma por tiro, na
+        // região atingida, presas ao corpo — ficam até o fim da rodada,
+        // mesmo caído ou morto
+        syncBodyStains3D(rig, P, { head: head, hip: hip, sho: sho, kneeF: kneeF }, fwd, side);
         // --- poeira 3D quando o corpo bate no chão (uma vez por queda) ---
+        // sem teto (etapa 7b): ver o outro gatilho igual a este
         if (poseNow === 'fallen'){
           var ft = now - (poseAtNow || now);
-          if (ft >= 560 && ft < 640 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(cx), 0.15); }
+          if (ft >= 560 && !rig.fallBurstDone){ rig.fallBurstDone = true; burstDust3(wX3(cx), 0.15); }
         } else rig.fallBurstDone = false;
       }
       // rajada de poeira 3D (impacto da queda): 18 partículas que voam,
-      // sobem e assentam em ~700 ms
+      // sobem e assentam em ~1,4 s, crescendo enquanto somem (etapa 7b)
       function burstDust3(x3, z3){
         if (!GL.ok || !GL.scene) return;
         var n = 18, pos = new Float32Array(n * 3), vel = [];
@@ -5001,7 +5296,7 @@
         var m = new THREE.PointsMaterial({ color: 0xc9a06a, size: 0.14, transparent: true, opacity: 0.7, depthWrite: false });
         var pts = new THREE.Points(g, m);
         GL.scene.add(pts);
-        GL.bursts.push({ pts: pts, vel: vel, born: performance.now() });
+        GL.bursts.push({ pts: pts, vel: vel, born: performance.now(), life: 1400, grow: true, size0: 0.14 });
       }
       // spray de sangue 3D no ponto do impacto: 14 gotas que voam na
       // direção da bala (para longe do atirador), sobem e caem em
@@ -5028,7 +5323,8 @@
         if (GL.bursts.length){
           var bdt = Math.min(0.05, (now - (GL.burstLast || now)) / 1000); GL.burstLast = now;
           GL.bursts = GL.bursts.filter(function(b){
-            var age = (now - b.born) / 700;
+            var lifeB = b.life || 700; // etapa 7b: a poeira dura 1,4 s; o sangue continua 700 ms
+            var age = (now - b.born) / lifeB;
             if (age >= 1){ GL.scene.remove(b.pts); b.pts.geometry.dispose(); b.pts.material.dispose(); return false; }
             var arr = b.pts.geometry.attributes.position.array;
             for (var i = 0; i < b.vel.length; i++){
@@ -5038,6 +5334,7 @@
             }
             b.pts.geometry.attributes.position.needsUpdate = true;
             b.pts.material.opacity = 0.7 * (1 - age);
+            if (b.grow) b.pts.material.size = (b.size0 || 0.14) * (1 + age * 1.3); // a nuvem cresce enquanto some
             return true;
           });
         }
@@ -5054,8 +5351,10 @@
         // câmera nivelada (alinhada ao 2D) com balanço sutil e tremor no tiro
         var sx = Math.sin(now / 2600) * 0.05, sy = 1.822 + Math.sin(now / 3400) * 0.03; // v27: câmera afastada (z 8.6); altura escala junto (1.525 * 8.6/7.2) para a linha do chão não se mover na tela
         if (now < G.shakeUntil){
-          var sh = 0.09 * (G.shakeUntil - now) / 180;
-          sx += (Math.random() * 2 - 1) * sh; sy += (Math.random() * 2 - 1) * sh;
+          var sh = 0.09 * (G.shakeUntil - now) / (G.shakeDur || 180); // etapa 7d: o tremor fatal dura 400 ms e some aos poucos
+          // oscilação suave (seno/cosseno), sem Math.random: o sorteio do
+          // jogo não pode depender da sequência aleatória da morte
+          sx += Math.sin(now / 31) * sh; sy += Math.cos(now / 27) * sh;
         }
         GL.camera.position.set(sx, sy, 8.6); // v27: zoom out (era 7.2)
         GL.camera.lookAt(sx * 0.5, 1.822, 0); // v27: acompanha a altura nova
@@ -5348,39 +5647,65 @@
         for (var i = 0; i < list.length; i++) if (list[i].id === entry.id){ pos = i; break; }
         return { rank: pos + 1, score: entry.p, id: entry.id, top: list.slice(0, 5) };
       }
+      // etapa 4: GAME OVER com campo de nome + SALVAR PONTUAÇÃO (mesmo ranking local)
+      function showSaveScoreBox(){
+        var box = el('saveScoreBox'); if (!box) return;
+        var inp = el('saveName'); if (inp) inp.value = G.youName || '';
+        var b = el('saveScoreBtn'); if (b){ b.textContent = 'SALVAR PONTUAÇÃO'; b.disabled = false; }
+        box.classList.add('show');
+      }
+      function hideSaveScoreBox(){ var box = el('saveScoreBox'); if (box) box.classList.remove('show'); }
+      // grava a pontuação com o nome digitado no ranking local; sem duplicata
+      function saveScoreNow(){
+        if (G.savedScore) return false;
+        var inp = el('saveName');
+        var name = inp ? (inp.value || '').trim() : '';
+        if (!name) name = (G.youName || 'Você').trim() || 'Você';
+        G.youName = name;
+        var mn = el('myName'); if (mn) mn.value = name;
+        var ny = el('nameYou'); if (ny) ny.textContent = name;
+        try { G.rank = rankingAdd(name, G.pointsYou, G.scoreYou > G.scoreOpp); } catch (e) { G.rank = null; }
+        G.savedScore = true;
+        var b = el('saveScoreBtn'); if (b){ b.textContent = 'Salvo!'; b.disabled = true; }
+        return true;
+      }
+      // sair sem salvar não perde a pontuação: grava sozinho com o nome do campo
+      function saveScoreIfPending(){ if (G.phase === 'matchEnd' && G.mode === 'cpu' && !G.savedScore) saveScoreNow(); }
       function drawMatchEndPanel(){
         var a = panelAnim(); ctx.save(); ctx.globalAlpha = a;
         try { if (G.mode === 'cpu') drawMatchEndRank(); else drawMatchEndPanel0(); } finally { ctx.restore(); }
       }
       function drawMatchEndRank(){
-        var x = 298, y = 46, w = 364, h = 300;
+        var x = 298, y = 46, w = 364, h = 380;
         panelBase(x, y, w, h, false);
         ctx.textAlign = 'center';
         var youWon = G.scoreYou > G.scoreOpp;
         ctx.fillStyle = youWon ? '#1d7a38' : '#8a2b20';
         ctx.font = '700 30px Georgia, "Times New Roman", serif';
-        ctx.fillText(youWon ? '🏆 Você venceu!' : 'O oponente venceu', W/2, y + 44);
+        ctx.fillText(youWon ? '🏆 Você venceu!' : 'GAME OVER', W/2, y + 38);
         ctx.fillStyle = '#3a6ea5';
         ctx.font = '700 21px Georgia, "Times New Roman", serif';
-        ctx.fillText('Placar final: ' + G.scoreYou + ' × ' + G.scoreOpp, W/2, y + 76);
-        var R = G.rank;
-        if (R){
-          ctx.fillStyle = '#333'; ctx.font = '600 16px Archivo, sans-serif';
-          ctx.fillText('Sua pontuação: ' + Math.round(R.score * Math.min(1, CU + 0.0001)) + ' pts' + (R.rank ? '  ·  #' + R.rank + ' no ranking' : ''), W/2, y + 102);
-          ctx.fillStyle = '#8a7a55'; ctx.font = '700 11px Archivo, sans-serif';
-          ctx.fillText('MELHORES RESULTADOS (neste aparelho)', W/2, y + 124);
-          ctx.font = '600 14px Archivo, sans-serif';
-          R.top.forEach(function(e, i){
-            var ry = y + 144 + i * 19, mine = e.id === R.id;
-            if (mine){ ctx.fillStyle = 'rgba(47,174,78,.18)'; ctx.fillRect(x + 28, ry - 14, w - 56, 18); }
-            ctx.fillStyle = mine ? '#1d7a38' : '#444';
-            ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + e.n, x + 38, ry);
-            ctx.textAlign = 'right'; ctx.fillText(e.p + ' pts', x + w - 38, ry);
-          });
-        }
+        ctx.fillText('Placar final: ' + G.scoreYou + ' × ' + G.scoreOpp, W/2, y + 64);
+        // pontuação final (conta de 0 com o fade) e, depois de salvar, a posição no ranking
+        var pts = Math.round(G.pointsYou * Math.min(1, CU + 0.0001));
+        ctx.fillStyle = '#333'; ctx.font = '600 16px Archivo, sans-serif';
+        ctx.fillText('Sua pontuação: ' + pts + ' pts' + (G.rank && G.rank.rank ? '  ·  #' + G.rank.rank + ' no ranking' : ''), W/2, y + 88);
+        // top 5 do ranking local (antes de salvar, sem a entrada nova) —
+        // fica ABAIXO do bloco nome+botão (DOM), sem nada por cima dele
+        var top = G.rank ? G.rank.top : rankLoad().slice(0, 5);
+        ctx.fillStyle = '#8a7a55'; ctx.font = '700 11px Archivo, sans-serif';
+        ctx.fillText('MELHORES RESULTADOS (neste aparelho)', W/2, y + 206);
+        ctx.font = '600 14px Archivo, sans-serif';
+        top.forEach(function(e, i){
+          var ry = y + 224 + i * 19, mine = G.rank && e.id === G.rank.id;
+          if (mine){ ctx.fillStyle = 'rgba(47,174,78,.18)'; ctx.fillRect(x + 28, ry - 14, w - 56, 18); }
+          ctx.fillStyle = mine ? '#1d7a38' : '#444';
+          ctx.textAlign = 'left'; ctx.fillText((i + 1) + '. ' + e.n, x + 38, ry);
+          ctx.textAlign = 'right'; ctx.fillText(e.p + ' pts', x + w - 38, ry);
+        });
         ctx.textAlign = 'center';
-        G.btnNext = { x: x + 62, y: y + 242, w: 240, h: 32 };
-        G.btnMenu = { x: x + 62, y: y + 278, w: 240, h: 18 };
+        G.btnNext = { x: x + 62, y: y + 318, w: 240, h: 32 };
+        G.btnMenu = { x: x + 62, y: y + 356, w: 240, h: 18 };
         ctx.fillStyle = '#1d7a38'; ctx.fillRect(G.btnNext.x, G.btnNext.y, G.btnNext.w, G.btnNext.h);
         ctx.fillStyle = '#fff'; ctx.font = '700 17px Archivo, sans-serif';
         ctx.fillText('JOGAR NOVAMENTE', W/2, G.btnNext.y + 22);
@@ -5560,8 +5885,8 @@
         if (GL.ok) ctx.clearRect(0, 0, W, H); // o 2D virou overlay transparente sobre o 3D
         ctx.save();
         if (now < G.shakeUntil){
-          var sh = 5 * (G.shakeUntil - now) / 180;
-          ctx.translate((Math.random()*2-1)*sh, (Math.random()*2-1)*sh);
+          var sh = 5 * (G.shakeUntil - now) / (G.shakeDur || 180); // etapa 7d: o tremor fatal dura 400 ms
+          ctx.translate(Math.sin(now / 31) * sh, Math.cos(now / 27) * sh); // seno/cosseno: sem Math.random, como no 3D
         }
         drawScene(now);
         if (G.hpYou <= 0 && !G.deathYouAt && G.phase !== 'idle') G.deathYouAt = now;
@@ -5681,7 +6006,8 @@
             ctx.globalAlpha = 1;
           } else if (e.kind === 'dust'){
             if (now < e.born) return; // poeira agendada (ex.: quando o corpo bate no chão) ainda não nasceu
-            var dp = Math.min(1, Math.max(0, (now - e.born) / 650));
+            var durD = e.dur || 650; // etapa 7b: a poeira do impacto dura ~1,4 s
+            var dp = Math.min(1, Math.max(0, (now - e.born) / durD));
             ctx.fillStyle = 'rgba(178,156,120,' + (0.5 * (1 - dp)) + ')';
             for (var di = 0; di < 5; di++){
               ctx.beginPath();
@@ -5697,13 +6023,26 @@
               ctx.fill();
             }
           } else if (e.kind === 'shell'){
-            // cápsula de latão: voa para trás, quica no chão e fica na rua até sumir
+            // cápsula de latão (etapa 7a): voa para trás, quica/rola no chão e
+            // fica na rua até o fim da rodada (until: Infinity, limpo no reset)
             var st = Math.max(0, (now - e.born) / 1000);
-            var sx2 = e.x + e.dir * 34 * st;
-            var sy2 = e.y - 66 * st + 300 * st * st;
+            // instante do 1º toque no chão: 300t² - 66t + (e.y - GROUND - 2) = 0
+            var disc = 66 * 66 - 1200 * (e.y - GROUND - 2);
+            var stLand = disc > 0 ? (66 + Math.sqrt(disc)) / 600 : 0;
+            var sx2, sy2;
+            if (st <= stLand){
+              sx2 = e.x + e.dir * 34 * st;
+              sy2 = e.y - 66 * st + 300 * st * st;
+            } else {
+              var lt = st - stLand;
+              if (!e.pinged){ e.pinged = true; shellPing(); }
+              // quica cada vez mais baixo e rola um pouco para trás, até parar
+              sy2 = GROUND + 2 - Math.exp(-3.2 * lt) * Math.abs(Math.sin(lt * 13)) * 9;
+              sx2 = e.x + e.dir * 34 * stLand + e.dir * 26 * (1 - Math.exp(-2.2 * lt));
+            }
             if (sy2 >= GROUND + 2){ sy2 = GROUND + 2; if (!e.pinged){ e.pinged = true; shellPing(); } }
             var fadeS = e.until - now < 500 ? (e.until - now) / 500 : 1;
-            ctx.save(); ctx.translate(sx2, sy2); ctx.rotate(st * 7 * e.dir);
+            ctx.save(); ctx.translate(sx2, sy2); ctx.rotate(Math.min(st, stLand + 0.5) * 7 * e.dir);
             ctx.globalAlpha = Math.max(0, fadeS);
             ctx.fillStyle = '#c9972f'; roundRect(-3, -7, 6, 11, 2); ctx.fill();
             ctx.fillStyle = '#8a6d1f'; ctx.fillRect(-3, 2, 6, 2.5);
@@ -5783,6 +6122,26 @@
             ctx.globalAlpha = 1;
           }
         });
+
+        // sombra da arma caída (etapa 7c): mancha escura e suave no chão,
+        // sob a arma caída — desenhada no overlay 2D, como a sombra do
+        // chapéu (a sombra real do sol numa peça tão pequena quase não
+        // se vê). Sem criar objetos THREE aqui: o construtor gera UUID
+        // com Math.random e deslocaria o sorteio do jogo.
+        if (GL.ok && GL.camera && GL.rigs){
+          ['you', 'opp'].forEach(function(sd){
+            var rg = GL.rigs[sd];
+            if (!rg || !rg.gunDrop || !rg.gunDrop.landed || !rg.parts || !rg.parts.gunG) return;
+            var gv = new THREE.Vector3();
+            rg.parts.gunG.getWorldPosition(gv);
+            gv.y = 0.02; // sombra no chão, embaixo da arma
+            gv.project(GL.camera);
+            var gsx = (gv.x * 0.5 + 0.5) * W, gsy = (-gv.y * 0.5 + 0.5) * H;
+            if (gsx < -40 || gsx > W + 40 || gsy < 0 || gsy > H) return;
+            ctx.fillStyle = 'rgba(60,25,10,.28)';
+            ctx.beginPath(); ctx.ellipse(gsx, gsy + 3, 26, 5, 0, 0, Math.PI * 2); ctx.fill();
+          });
+        }
 
         // sem mira na tela: só o braço de cada pistoleiro mostra a altura do tiro
 
@@ -5905,10 +6264,14 @@
           var px7 = p.x * W, py7 = p.y * H;
           function inRect7(r){ return r && px7 >= r.x && px7 <= r.x + r.w && py7 >= r.y && py7 <= r.y + r.h; }
           if (inRect7(G.btnNext)){
+            saveScoreIfPending(); // sair sem salvar não perde a pontuação
+            hideSaveScoreBox();
             startMatch();
             return;
           }
           if (inRect7(G.btnMenu)){
+            saveScoreIfPending();
+            hideSaveScoreBox();
             G.phase = 'idle'; G.count = ''; G.btnNext = null; G.btnMenu = null;
             resetDuelState();
             showMsg('Menu principal — escolha um modo no painel e comece de novo.', 3500);
@@ -5970,6 +6333,7 @@
 
       /* ---------------- MODOS / ABAS ---------------- */
       function setMode(m){
+        hideSaveScoreBox();
         G.mode = m;
         ['online','cpu'].forEach(function(x){
           el('tab-' + x).setAttribute('aria-selected', x === m ? 'true' : 'false');
@@ -6598,8 +6962,11 @@
           if (m.r !== G.round) return;
           if (typeof m.v === 'number' && m.v < G.hpSeen) return;
           if (typeof m.v === 'number') G.hpSeen = m.v;
+          var hpYouAntes = G.hpYou, hpOppAntes = G.hpOpp;
           if (typeof m.g === 'number') G.hpYou = m.g;
           if (typeof m.h === 'number') G.hpOpp = m.h;
+          // etapa 7d: o convidado treme quando o estado oficial confirma a morte
+          if ((hpYouAntes > 0 && G.hpYou <= 0) || (hpOppAntes > 0 && G.hpOpp <= 0)) fatalShake(performance.now());
           if (typeof m.pG === 'number') G.pointsYou = m.pG;
           if (typeof m.pH === 'number') G.pointsOpp = m.pH;
           if (typeof m.aG === 'number') G.ammoYou = m.aG;
@@ -6742,6 +7109,14 @@
       });
 
       el('myName').addEventListener('change', function(){ G.youName = myDisplayName(); renderHUD(); });
+
+      // etapa 4: botão SALVAR PONTUAÇÃO (com guarda: o harness roda sem DOM completo)
+      (function(){
+        var b = el('saveScoreBtn');
+        if (b) b.addEventListener('click', function(){ saveScoreNow(); });
+        var inp = el('saveName');
+        if (inp) inp.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); saveScoreNow(); inp.blur(); } });
+      })();
 
       el('howtoToggle').addEventListener('click', function(){
         var d = el('howtoDetails'), open = d.hidden;
