@@ -1296,6 +1296,8 @@
         }
         var hp = targetSide === 'you' ? G.hpYou : G.hpOpp;
         if (hp <= 0) return; // caiu de vez: o desenho cuida do corpo no chão
+        // v33 (jogo 2): qualquer tiro que não mata derruba o atirado, que continua atirando do chão
+        if (CLASSIC && zone !== 'legs') zone = 'legs';
         if (zone === 'arm'){
           // tiro no braço do gatilho: a mira treme por alguns segundos
           if (!CLASSIC){ if (targetSide === 'you') G.armYouUntil = now + 4500; else G.armOppUntil = now + 4500; }
