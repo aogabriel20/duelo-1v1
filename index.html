@@ -1813,20 +1813,17 @@
           else if (dr < .62){ doJump('opp'); }
         }
         if (ai.crouchUntil && now >= ai.crouchUntil){ setCrouch('opp', false); ai.crouchUntil = 0; }
-        // v39 (equilíbrio do modo clássico): o oponente saca depois de você, mira no tronco/pernas e atira devagar —
-        // antes ele matava em ~0,6 s com dois tiros seguidos e o jogador morria em toda rodada
-        if (CLASSIC && !ai.nextShot) ai.nextShot = now + Math.max(650, 1250 - (G.round || 1) * 70) + Math.random() * 600;
         if (!ai.nextShot) ai.nextShot = now + ai.react + Math.random()*250;
         if (now > ai.nextWander){
           ai.nextWander = now + 260 + Math.random()*220;
           // a altura da mira vagueia pelo seu pistoleiro, da cabeça às pernas
-          ai.aimTarget = { x: .26, y: ((CLASSIC ? 318 : 268) + (Math.random()*150-75)) / H };
+          ai.aimTarget = { x: .26, y: (268 + (Math.random()*150-75)) / H };
         }
         // aproxima a altura da mira do alvo suavemente (só a altura existe)
         G.aimOpp.y += (ai.aimTarget.y - G.aimOpp.y) * .09;
         if (now >= ai.nextShot && G.ammoOpp > 0){
-          ai.nextShot = now + (CLASSIC ? Math.max(850, 1500 - (G.round || 1) * 80) + Math.random() * 700 : ai.interval + Math.random()*260);
-          var sy = G.aimOpp.y * H + (Math.random()*2-1) * ai.spread * (CLASSIC ? 1.0 : .7);
+          ai.nextShot = now + ai.interval + Math.random()*260;
+          var sy = G.aimOpp.y * H + (Math.random()*2-1) * ai.spread * .7;
           shoot('opp', sy);
         }
       }
@@ -5290,17 +5287,6 @@
                     if (Math.abs(shF) <= 0.002) break;
                     rig.inner.position.y -= shF / (rig.group.scale.y || 1);
                   }
-                  // v39: o corpo morto/caído nunca sai da tela (nem no voo): margem de 45 px nas duas bordas
-                  try {
-                    var cam = GL.camera, bn = ['Head','Hips','Chest','FootL','FootR','PTL','PTR','UpperArmL','UpperArmR'], mnP = 1e9, mxP = -1e9, vv = new THREE.Vector3(), zz = 0;
-                    rig.group.updateMatrixWorld(true);
-                    bn.forEach(function(n){ var bb = rig.bones[n]; if (!bb) return; bb.getWorldPosition(vv); zz = vv.z; var px = (vv.clone().project(cam).x * 0.5 + 0.5) * 960; if (px < mnP) mnP = px; if (px > mxP) mxP = px; });
-                    var dPx = 0; if (mnP < 45) dPx = 45 - mnP; else if (mxP > 915) dPx = 915 - mxP;
-                    if (dPx){
-                      var wpp = 2 * Math.tan(cam.fov * Math.PI / 360) * Math.abs(cam.position.z - zz) * cam.aspect / 960;
-                      rig.group.position.x += dPx * wpp;
-                    }
-                  } catch (eX) {}
                 }
               } catch (eF) {}
             }
