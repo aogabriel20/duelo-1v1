@@ -840,7 +840,7 @@
         try { spawnBloodSpray0(x, y, dir, zone, now, kill); } catch (e) {}
       }
       function spawnBloodSpray0(x, y, dir, zone, now, kill){
-        var n = kill ? 16 : (zone === 'head' ? 20 : zone === 'arm' ? 9 : zone === 'legs' ? 11 : 16);
+        var n = CLASSIC ? (kill || zone === 'head' ? 9 : 5) : (kill ? 16 : (zone === 'head' ? 20 : zone === 'arm' ? 9 : zone === 'legs' ? 11 : 16));
         var ps = [];
         for (var i = 0; i < n; i++){
           var exitSide = Math.random() < 0.72; // maior parte sai pelas costas (na direcao do tiro)
@@ -855,6 +855,28 @@
         }
         effects.push({ kind:'bloodp', ps: ps, born: now, last: now, until: now + 2600 });
       }
+      // ferida: um furo pequeno no corpo, exatamente onde a bala entrou; o sangue escorre dele
+      function makeWound(targetSide, impactY, now){
+        try {
+          var rig = GL.rigs[targetSide];
+          if (!rig || !rig.bones || !GL.camera) return;
+          var cands = ['Head','Chest','Abdomen','Hips','UpperLegL','UpperLegR','LowerLegL','LowerLegR','LowerArmL','LowerArmR'];
+          var best = null, bd = 1e9, v = new THREE.Vector3();
+          cands.forEach(function(n){
+            var b = rig.bones[n]; if (!b) return;
+            b.getWorldPosition(v);
+            var p = v.clone().project(GL.camera), sy = (0.5 - p.y * 0.5) * 540, d = Math.abs(sy - impactY);
+            if (d < bd){ bd = d; best = b; }
+          });
+          if (!best) return;
+          best.getWorldPosition(v);
+          var pb = v.clone().project(GL.camera), cam = GL.camera.position;
+          var dir = new THREE.Vector3(pb.x, 1 - 2 * impactY / 540, 0.5).unproject(GL.camera).sub(cam);
+          var t = (v.z - cam.z) / dir.z;
+          var w = cam.clone().add(dir.multiplyScalar(t));
+          effects.push({ kind:'wound', bone: best, local: best.worldToLocal(w.clone()), born: now, until: Infinity, drip: 0.7 + Math.random() * 0.5 });
+        } catch (e) {}
+      }
       function startPool(side, now){
         try { startPool0(side, now); } catch (e) {}
       }
@@ -865,7 +887,7 @@
           if (STAIN.pools[i].side === side && !STAIN.pools[i].done) return;
         }
         setTimeout(function(){ try { corpseThud(); } catch (e) {} }, 780);
-        STAIN.pools.push({ side: side, t0: now + 520, x: 0, z: 0, r: 0, scale: 0.85 + Math.random() * 0.3, seed: Math.random(), done: false });
+        STAIN.pools.push({ side: side, t0: now + (CLASSIC ? 1100 : 520), x: 0, z: 0, r: 0, scale: (CLASSIC ? 0.7 : 0.85) + Math.random() * 0.3, seed: Math.random(), done: false });
       }
       // deslize, voo e quique do corpo depois do tiro fatal (unidades de mundo)
       function corpseKin(side, now){
@@ -1157,6 +1179,8 @@
         var sh = shoulderPos('you', performance.now());
         var a = aimAngleFor('you');
         var y = sh.y + Math.tan(a) * (bodyPlaneX('opp') - sh.x);
+        // v36: a bala sai exatamente na altura do mouse
+        if (CLASSIC) return Math.max(-1200, Math.min(1740, G.aimYou.y * H));
         return Math.max(-1200, Math.min(1740, y));
       }
       function muzzlePos(side){
@@ -1426,7 +1450,7 @@
         if (isYou && !remote){ G.stats.shots++; G.roundShots++; }
 
         // quem caiu atira do chão, apoiado no braço: a mão fica menos firme
-        if (!remote){
+        if (!remote && !CLASSIC){ // no modo clássico a bala vai exatamente onde o mouse está
           var shooterPose = isYou ? G.poseYou : G.poseOpp;
           // agachado, a mira fica mais firme (metade da variação); pulando,
           // o corpo balança no ar e o tiro sai mais torto
@@ -1445,7 +1469,7 @@
           // o braço estendido fica na frente do tronco: tiro que cruza a mão é tiro no braço
           // (v28: a mão é o PULSO DE VERDADE projetado — o modelo 2D reto
           // errava ~30 px para cima e "bloqueava" tiro no alto do peito)
-          if (hit && hit.name === 'body'){
+          if (!CLASSIC && hit && hit.name === 'body'){
             var tSide = isYou ? 'opp' : 'you';
             var hp2 = wristScreenPos(tSide);
             var shS = shoulderPos(side, now);
@@ -1489,6 +1513,7 @@
           // respingos no chão que FICAM até o fim da rodada (vídeo) —
           // atrás de quem levou o tiro, para não cobrir os pés
           spawnBloodSpray(hitP.x, hitP.y, isYou ? 1 : -1, hit.name, now, false);
+          if (CLASSIC) makeWound(isYou ? 'opp' : 'you', impactY, now);
           // VIDA COM UM DONO SÓ: no online, só o anfitrião aplica dano e
           // pontos. O convidado mostra o acerto na hora (sangue, "-25",
           // som), mas a vida e os pontos só mudam quando o anfitrião
@@ -4720,7 +4745,7 @@
           P.guitarG.rotation.z = SP.guitar.x;
         }
         // poça de sangue quando caído ou morto
-        P.blood.visible = (pose === 'fallen') || dead;
+        P.blood.visible = CLASSIC ? false : ((pose === 'fallen') || dead); // v36: a poça é só a mancha do chão, depois que o corpo cai
         P.blood.position.set(wX3(C.cx) + C.SP.push.x + xShift, 0.015, 0.15); // poça fica embaixo do corpo, que recuou (e do deslocamento para caber na tela)
         // manchas de sangue na roupa/pele (etapa 2): uma por tiro, na
         // região atingida, presas ao corpo — ficam até o fim da rodada,
@@ -5988,7 +6013,7 @@
 
         // poças de sangue no chão sob quem caiu ou morreu, como no vídeo
         [['you', xYouNow, G.poseYou, G.hpYou], ['opp', xOppNow, G.poseOpp, G.hpOpp]].forEach(function(s3){
-          if (s3[2] === 'fallen' || s3[3] <= 0){
+          if (!CLASSIC && (s3[2] === 'fallen' || s3[3] <= 0)){ // v36: poça 2D flutuante só no modo antigo; no clássico a poça é a mancha do chão (3D)
             ctx.fillStyle = 'rgba(179,30,24,.75)';
             ctx.beginPath(); ctx.ellipse(s3[1] - 30, GROUND + 4, 52, 5.5, 0, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.ellipse(s3[1] + 28, GROUND + 7, 26, 4, 0, 0, Math.PI*2); ctx.fill();
@@ -6096,6 +6121,22 @@
               ctx.strokeStyle = 'rgba(165,14,10,.95)'; ctx.lineWidth = pt.r * 1.5;
               ctx.beginPath(); ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x - pt.vx * 0.012, pt.y - pt.vy * 0.012); ctx.stroke();
             });
+          } else if (e.kind === 'wound'){
+            try {
+              var wv = e.local.clone(); e.bone.localToWorld(wv); wv.project(GL.camera);
+              var wx = (wv.x * 0.5 + 0.5) * 960, wy = (0.5 - wv.y * 0.5) * 540;
+              var wAge = Math.max(0, (now - e.born) / 1000);
+              var wL = Math.min(GROUND + 14 - wy, 36 * e.drip * (1 - Math.exp(-wAge / 1.8)));
+              if (wL > 1){
+                var gr = ctx.createLinearGradient(0, wy, 0, wy + wL);
+                gr.addColorStop(0, 'rgba(130,10,8,.95)'); gr.addColorStop(1, 'rgba(95,6,5,.85)');
+                ctx.strokeStyle = gr; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + wL * 0.04, wy + wL); ctx.stroke();
+                ctx.fillStyle = 'rgba(100,6,5,.9)'; ctx.beginPath(); ctx.arc(wx + wL * 0.04, wy + wL, 2.1, 0, Math.PI * 2); ctx.fill();
+              }
+              ctx.fillStyle = 'rgba(115,8,6,.95)'; ctx.beginPath(); ctx.arc(wx, wy, 3.4, 0, Math.PI * 2); ctx.fill();
+              ctx.fillStyle = 'rgba(200,40,30,.55)'; ctx.beginPath(); ctx.arc(wx - 0.8, wy - 0.9, 1.2, 0, Math.PI * 2); ctx.fill();
+            } catch (eW) {}
           } else if (e.kind === 'hatfly'){
             // chapéu com física: sai girando, bate no chão, quica, rola e para
             var dtAll = Math.min(0.15, Math.max(0, (now - e.last) / 1000)); e.last = now;
