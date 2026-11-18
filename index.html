@@ -3309,7 +3309,6 @@
       var _gv1 = new THREE.Vector3(), _gv2 = new THREE.Vector3(), _gv3 = new THREE.Vector3(), _gv4 = new THREE.Vector3(), _gv5 = new THREE.Vector3(), _gv6 = new THREE.Vector3();
       var AX_X = new THREE.Vector3(1, 0, 0), AX_Y = new THREE.Vector3(0, 1, 0), AX_Z = new THREE.Vector3(0, 0, 1);
       var _gq1 = new THREE.Quaternion(), _gq2 = new THREE.Quaternion(), _gq3 = new THREE.Quaternion(), _gq4 = new THREE.Quaternion(), _gq5 = new THREE.Quaternion();
-      var READY_POSE = [['UpperLeg@','X',0.2,'stand'],['UpperLeg#','X',-0.25,'stand']];
       // o esqueleto do modelo não é anatômico: a coxa é filha do corpo
       // (não do quadril) e o pé é filho da raiz (não da canela) — sem
       // isso a perna não acompanha a IK e o pé fica preso no lugar.
@@ -3974,61 +3973,6 @@
       // está na pose do clip e a dobra é o ângulo cheio; se não escreveu,
       // o osso ainda tem a dobra do quadro anterior e só entra a VARIAÇÃO.
       function idleOK2(C, cr){ return C.poseNow !== 'fallen' && (C.side === 'you' ? G.hpYou : G.hpOpp) > 0 && !((C.extra.walkSwing || 0) > 0) && cr < 0.05; }
-      // ---- IK de 2 ossos: leva a mão até um ponto do mundo (pose "pronto para sacar") ----
-      var _ik = null;
-      function _ikInit(){
-        _ik = { S: new THREE.Vector3(), E: new THREE.Vector3(), W: new THREE.Vector3(), T: new THREE.Vector3(), H: new THREE.Vector3(),
-                d: new THREE.Vector3(), pv: new THREE.Vector3(), c: new THREE.Vector3(), q1: new THREE.Quaternion(), q2: new THREE.Quaternion(),
-                q3: new THREE.Quaternion(), q0: new THREE.Quaternion(), qp: new THREE.Quaternion(), tE: new THREE.Vector3(), tT: new THREE.Vector3() };
-      }
-      function _aimBone(bone, childPos, target, w){
-        bone.updateWorldMatrix(true, false);
-        bone.getWorldPosition(_ik.c);
-        _ik.d.copy(childPos).sub(_ik.c).normalize();
-        _ik.pv.copy(target).sub(_ik.c).normalize();
-        _ik.q1.setFromUnitVectors(_ik.d, _ik.pv);
-        bone.getWorldQuaternion(_ik.q2);
-        _ik.q3.copy(_ik.q1).multiply(_ik.q2);
-        bone.parent.getWorldQuaternion(_ik.qp); _ik.qp.invert();
-        _ik.q3.premultiply(_ik.qp);
-        _ik.q0.copy(bone.quaternion);
-        bone.quaternion.copy(_ik.q0).slerp(_ik.q3, w);
-        bone.updateMatrixWorld(true);
-      }
-      var READY_IK = { gx: 0.27, gy: 0.07, gz: 0.04, sx: -0.03, sy: 0.07, sz: 0.0, pg: 0.5 };
-      function readyArmsIK(rig, gL, sL, w){
-        if (!_ik) _ikInit();
-        var B = rig.bones, R = window.__RIK || READY_IK;
-        rig.group.updateMatrixWorld(true);
-        B.Hips.getWorldPosition(_ik.H);
-        var fx = rig.flip ? -1 : 1;
-        [[gL, true], [sL, false]].forEach(function(a){
-          var U = B['UpperArm' + a[0]], Lw = B['LowerArm' + a[0]], Wr = B['Wrist' + a[0]];
-          if (!U || !Lw || !Wr) return;
-          U.getWorldPosition(_ik.S); Lw.getWorldPosition(_ik.E); Wr.getWorldPosition(_ik.W);
-          var l1 = _ik.S.distanceTo(_ik.E), l2 = _ik.E.distanceTo(_ik.W);
-          var zs = _ik.S.z - _ik.H.z, zsg = zs >= 0 ? 1 : -1;
-          // alvo da mão: junto ao quadril (a mão do revólver pousa no cabo; a outra fica aberta ao lado)
-          if (a[1]) _ik.T.set(_ik.H.x + fx * R.gx, _ik.H.y + R.gy, _ik.S.z + zsg * R.gz);
-          else _ik.T.set(_ik.H.x + fx * R.sx, _ik.H.y + R.sy, _ik.S.z + zsg * R.sz);
-          var dx = _ik.T.x - _ik.S.x, dy = _ik.T.y - _ik.S.y, dz = _ik.T.z - _ik.S.z;
-          var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-          var dd = Math.max(Math.abs(l1 - l2) + 0.02, Math.min(l1 + l2 - 0.01, dist));
-          var ux = dx / dist, uy = dy / dist, uz = dz / dist;
-          var aa = (l1*l1 - l2*l2 + dd*dd) / (2 * dd), hh = Math.sqrt(Math.max(0, l1*l1 - aa*aa));
-          // cotovelo dobra para trás e para fora
-          var px = -fx * 0.6, py = 0.0, pz = zsg * 0.5;
-          var pd = px*ux + py*uy + pz*uz; px -= pd*ux; py -= pd*uy; pz -= pd*uz;
-          var pl = Math.sqrt(px*px + py*py + pz*pz) || 1; px /= pl; py /= pl; pz /= pl;
-          var Ex = _ik.S.x + ux*aa + px*hh, Ey = _ik.S.y + uy*aa + py*hh, Ez = _ik.S.z + uz*aa + pz*hh;
-          var Tx = _ik.S.x + ux*dd, Ty = _ik.S.y + uy*dd, Tz = _ik.S.z + uz*dd;
-          _ik.tE.set(Ex, Ey, Ez);
-          _aimBone(U, Lw.getWorldPosition(_ik.W).clone(), _ik.tE, w);
-          Lw.getWorldPosition(_ik.E); Wr.getWorldPosition(_ik.W);
-          _ik.tT.set(Tx, Ty, Tz);
-          _aimBone(Lw, _ik.W.clone(), _ik.tT, w);
-        });
-      }
       function glbBend(rig, boneName, axis, angle){
         var b = rig.bones && rig.bones[boneName];
         if (!b) return;
@@ -4129,26 +4073,6 @@
       // precisa — o braço da arma segue o mouse (glbApplyAim) e a
       // reação ao tiro depende da região (o clip certo por zona).
       // O modelo de reserva (Quaternius) continua no caminho antigo.
-      // altura (mundo) do ponto mais baixo da malha do boneco, com a pose do quadro anterior
-      var _mmV = null;
-      function meshMinY(rig){
-        if (!_mmV) _mmV = new THREE.Vector3();
-        if (!rig._skm){
-          rig._skm = [];
-          rig.group.traverse(function(o){ if (o.isSkinnedMesh && o.getVertexPosition) rig._skm.push(o); });
-        }
-        if (!rig._skm.length) return null;
-        rig.group.updateMatrixWorld(true);
-        var mn = Infinity;
-        for (var m = 0; m < rig._skm.length; m++){
-          var o = rig._skm[m], n = o.geometry.attributes.position.count, st = 11;
-          for (var i = (m * 7) % st; i < n; i += st){
-            o.getVertexPosition(i, _mmV); _mmV.applyMatrix4(o.matrixWorld);
-            if (_mmV.y < mn) mn = _mmV.y;
-          }
-        }
-        return mn === Infinity ? null : mn;
-      }
       function glbDriveState(rig, C){
         var info = rig.info, flip = C.flip, fwd = C.fwd, now = C.now, dt3 = C.dt3;
         var side = C.side, extra = C.extra || {};
@@ -4427,21 +4351,6 @@
           var iChY = iw * 0.07 * Math.sin(it * 0.65 + 2.0), iChX = iw * 0.035 * Math.sin(it * 1.25);
           var iHdY = iw * 0.12 * Math.sin(it * 0.45 + 0.5), iHdX = iw * 0.04 * Math.sin(it * 0.9 + 1.0);
           var iArm = iw * (0.10 * Math.sin(it * 1.05 + 0.3) + 0.04 * Math.sin(it * 2.3));
-          // v38: POSE ANTES DO FIRE (igual à referência): mão do revólver pousada no cabo, outra mão
-          // aberta junto ao quadril, pernas afastadas, tronco levemente inclinado. Só na contagem;
-          // no FIRE! o saque parte exatamente daqui.
-          var rdyT = (CLASSIC && phase === 'countdown' && (situation === 'ready' || situation === 'walk')) ? 1 : 0;
-          sm.rdyW = (sm.rdyW || 0) + (rdyT - (sm.rdyW || 0)) * Math.min(1, dt3 * 7);
-          if (sm.rdyW > 0.002){
-            var RPL = window.__RP || READY_POSE, AXM = { X: AX_X, Y: AX_Y, Z: AX_Z };
-            var gL = gunSide === 'R' ? 'R' : 'L', sL = gL === 'R' ? 'L' : 'R';
-            for (var rpi = 0; rpi < RPL.length; rpi++){
-              var rpe = RPL[rpi];
-              if (rpe[3] === 'stand' && situation !== 'ready') continue;
-              glbBend(rig, rpe[0].replace('@', gL).replace('#', sL), AXM[rpe[1]], rpe[2] * sm.rdyW);
-            }
-            try { readyArmsIK(rig, gL, sL, sm.rdyW); } catch (eIK) {}
-          }
           glbBend(rig, 'Hips', AX_Y, lean * 0.7 + iHipY);
           glbBend(rig, 'Hips', AX_Z, 0.04 * swayA + iHipZ);
           glbBend(rig, 'Chest', AX_Y, lean * 0.9 + iChY);
@@ -4697,18 +4606,7 @@
             // v25: em pé usa o vão calibrado na sola (boneToGroundUp);
             // caído/morto mantém o boneToGround original (v21).
             var btg = (upright && info.boneToGroundUp != null) ? info.boneToGroundUp : (info.boneToGround || 0);
-            // v37: TRAVA DE CHÃO PELA MALHA REAL — a malha mais baixa do corpo nunca entra no
-            // chão (nem na queda, nem na morte, nem ao morrer caído) e nunca fica flutuando.
-            // Mede o quadro anterior (com o ajuste aplicado) e corrige a diferença.
-            var gAdj = 0;
-            if (CLASSIC){
-              try {
-                var ckk = corpseKin(C.side, C.now);
-                if (upright){ rig.gAdj = 0; }
-                gAdj = rig.gAdj || 0;
-              } catch (eG) { gAdj = 0; }
-            }
-            rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - btg) * info.scale + corpseKin(C.side, C.now).dy / sy + gAdj / sy; // v29: corpo sai do chão ao levar o tiro
+            rig.inner.position.y = (0.02 - g.position.y) / sy - (minY - btg) * info.scale + corpseKin(C.side, C.now).dy / sy; // v29: corpo sai do chão ao levar o tiro
           }
         }
         // --- corpo morto/caído sempre cabe inteiro na tela ---
@@ -5255,22 +5153,6 @@
             // (mocap retargetado + quadros a mão); o amostrador 2D não
             // dirige mais os ossos — só a mira segue o mouse
             glbDriveState(rig, { flip:flip, fwd:fwd, now:now, dt3:dt3, side:side, extra:extra, hpNow:hpNow, poseNow:poseNow, poseAtNow:poseAtNow, angle:angle, cx:cx, hatOff:hatOff, g:g, SP:SP, wsw:wsw, wph:wph, buckle:buckle, fold:fold, hip:hip, sho:sho, head:head, kneeF:kneeF });
-            // v37: correção final no mesmo quadro — a pele mais baixa nunca fica abaixo do chão nem flutuando
-            if (CLASSIC){
-              try {
-                var sitF = rig.sm && rig.sm.lastSituation;
-                if (sitF === 'ground' || sitF === 'dead'){
-                  for (var itF = 0; itF < 3; itF++){ // 2–3 passadas: o ajuste converge mesmo quando o clipe afunda rápido
-                    var rF = meshMinY(rig);
-                    if (rF === null) break;
-                    var errF = rF - 0.02, flyF = corpseKin(side, now).dy > 0.02;
-                    var shF = flyF ? Math.min(0, errF) : errF;
-                    if (Math.abs(shF) <= 0.002) break;
-                    rig.inner.position.y -= shF / (rig.group.scale.y || 1);
-                  }
-                }
-              } catch (eF) {}
-            }
             return;
           }
           // modelo de reserva (Quaternius): caminho antigo (amostrador + IK)
