@@ -671,7 +671,7 @@
          Para voltar ao estilo antigo, mude para false. */
       var CLASSIC = true;
       var DRAW_MS = CLASSIC ? 170 : 450;   // tempo do saque (jogo 2: ~0,15 s)
-      var PHYS_BLOOD = { gravity: 1500, maxStains: 700, poolSeconds: 4.2, poolRadius: 0.50 };
+      var PHYS_BLOOD = { gravity: 2700, maxStains: 700, poolSeconds: 4.2, poolRadius: 0.50 };
       var PHYS_HAT = { gravity: 1500, bounce: 0.38, friction: 6 };
       // pose final da morte (etapa 1a/1c): base por região do tiro +
       // sorteio por morte. sh = ombro (abre o braço p/ o lado, AX_Z),
@@ -1296,8 +1296,7 @@
         }
         var hp = targetSide === 'you' ? G.hpYou : G.hpOpp;
         if (hp <= 0) return; // caiu de vez: o desenho cuida do corpo no chão
-        // v33 (jogo 2): qualquer tiro que não mata derruba o atirado, que continua atirando do chão
-        if (CLASSIC && zone !== 'legs') zone = 'legs';
+        if (CLASSIC && (zone === 'chest' || zone === 'belly' || zone === 'body')) zone = 'legs'; // tiro no tronco derruba; continua atirando do chão
         if (zone === 'arm'){
           // tiro no braço do gatilho: a mira treme por alguns segundos
           if (!CLASSIC){ if (targetSide === 'you') G.armYouUntil = now + 4500; else G.armOppUntil = now + 4500; }
@@ -1465,6 +1464,8 @@
             hit = { name: impactY < midB ? 'chest' : 'belly', dmg: 25 };
           }
         }
+        // v34: só a CABEÇA mata com um tiro; tronco e perna derrubam (2 tiros matam); braço só fere
+        if (CLASSIC && hit){ hit.dmg = (hit.name === 'head') ? 100 : (hit.name === 'arm') ? 25 : 50; }
 
         if (isYou){ G.recoilYouAt = now; G.cylRotYou += Math.PI / 3; } // coice + tambor gira uma câmara
         else { G.recoilOppAt = now; G.cylRotOpp += Math.PI / 3; }
@@ -1484,7 +1485,7 @@
           // (osso da região projetado), não no pivô — antes nasciam 36 px
           // para dentro, no ar, à esquerda do peito
           var hitP = hitScreenPos(isYou ? 'opp' : 'you', hit.name, impactY);
-          effects.push({ kind:'blood', x: hitP.x, y: hitP.y, born: now, until: now + 620, dir: isYou ? 1 : -1 });
+          if (!CLASSIC) effects.push({ kind:'blood', x: hitP.x, y: hitP.y, born: now, until: now + 620, dir: isYou ? 1 : -1 });
           // respingos no chão que FICAM até o fim da rodada (vídeo) —
           // atrás de quem levou o tiro, para não cobrir os pés
           spawnBloodSpray(hitP.x, hitP.y, isYou ? 1 : -1, hit.name, now, false);
@@ -3946,6 +3947,7 @@
       // osso com o de antes (sm._mixWrote): se o mixer escreveu, o osso
       // está na pose do clip e a dobra é o ângulo cheio; se não escreveu,
       // o osso ainda tem a dobra do quadro anterior e só entra a VARIAÇÃO.
+      function idleOK2(C, cr){ return C.poseNow !== 'fallen' && (C.side === 'you' ? G.hpYou : G.hpOpp) > 0 && !((C.extra.walkSwing || 0) > 0) && cr < 0.05; }
       function glbBend(rig, boneName, axis, angle){
         var b = rig.bones && rig.bones[boneName];
         if (!b) return;
@@ -4310,15 +4312,25 @@
           // de volta. Cabeça desce de ~2,83 para ~2,2.
           glbBend(rig, 'UpperLegL', AX_X, -0.95 * cr + swL);
           glbBend(rig, 'UpperLegR', AX_X, -0.95 * cr + swR);
-          glbBend(rig, 'Head', AX_X, headBend);
-          glbBend(rig, 'Chest', AX_X, chestBend);
+          glbBend(rig, 'Head', AX_X, headBend + (idleOK2(C, cr) ? 0.04 * Math.sin(C.now / 1000 * 0.9 + 1.0) : 0));
+          glbBend(rig, 'Chest', AX_X, chestBend + (idleOK2(C, cr) ? 0.035 * Math.sin(C.now / 1000 * 1.25) : 0));
           glbBend(rig, 'Abdomen', AX_X, abdBend);
           // torção do quadril e do peito no impacto: o corpo gira um
           // pouco para o lado do tiro e dá um passo para se equilibrar
           // (o passo em si já existe: o grupo desliza com SP.push)
-          glbBend(rig, 'Hips', AX_Y, lean * 0.7);
-          glbBend(rig, 'Hips', AX_Z, 0.04 * swayA);
-          glbBend(rig, 'Chest', AX_Y, lean * 0.9);
+          // v35: MOBILIDADE — parado, o corpo nunca fica duro: troca o peso de
+          // uma perna para a outra, torce o tronco, mexe a cabeça e o braço livre
+          var idleOK = C.poseNow !== 'fallen' && (C.side === 'you' ? G.hpYou : G.hpOpp) > 0 && !((C.extra.walkSwing || 0) > 0) && cr < 0.05;
+          var iw = idleOK ? 1 : 0, it = C.now / 1000 + (C.side === 'you' ? 0 : 1.9);
+          var iHipZ = iw * 0.055 * Math.sin(it * 0.85), iHipY = iw * 0.05 * Math.sin(it * 0.55 + 1.0);
+          var iChY = iw * 0.07 * Math.sin(it * 0.65 + 2.0), iChX = iw * 0.035 * Math.sin(it * 1.25);
+          var iHdY = iw * 0.12 * Math.sin(it * 0.45 + 0.5), iHdX = iw * 0.04 * Math.sin(it * 0.9 + 1.0);
+          var iArm = iw * (0.10 * Math.sin(it * 1.05 + 0.3) + 0.04 * Math.sin(it * 2.3));
+          glbBend(rig, 'Hips', AX_Y, lean * 0.7 + iHipY);
+          glbBend(rig, 'Hips', AX_Z, 0.04 * swayA + iHipZ);
+          glbBend(rig, 'Chest', AX_Y, lean * 0.9 + iChY);
+          glbBend(rig, 'Head', AX_Y, iHdY);
+          glbBend(rig, 'UpperArm' + supSide, AX_Z, iArm);
           // braço livre: o flail joga para fora; na barriga, a mão vai para a barriga;
           // mirando, o braço livre descansa perto do quadril (antes ficava
           // estendido para a frente, como se mirasse com as duas mãos)
@@ -6073,6 +6085,7 @@
             ctx.lineCap = 'round';
             e.ps.forEach(function(pt){
               if (!pt.alive) return;
+              if (now - e.born > 1100) pt.y = pt.landY; // nenhuma gota fica no ar
               pt.vy += PHYS_BLOOD.gravity * dtB;
               pt.x += pt.vx * dtB; pt.y += pt.vy * dtB;
               if (pt.y >= pt.landY){
