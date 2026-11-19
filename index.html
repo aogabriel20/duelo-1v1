@@ -887,7 +887,13 @@
           if (STAIN.pools[i].side === side && !STAIN.pools[i].done) return;
         }
         setTimeout(function(){ try { corpseThud(); } catch (e) {} }, 780);
-        STAIN.pools.push({ side: side, t0: now + (CLASSIC ? 600 : 520), x: 0, z: 0, r: 0, scale: (CLASSIC ? 1.0 : 0.85) + Math.random() * 0.3, seed: Math.random(), done: false });
+        // bug "poça flutua": a poça nascia em x=0, z=0 (meio do palco)
+        // e só ia para baixo do corpo quando updatePools lesse os ossos.
+        // Se essa leitura falhasse, a poça ficava no meio do nada. Agora
+        // ela já nasce embaixo do corpo (posição do grupo no chão).
+        var px0 = 0, pz0 = 0.04;
+        try { var rg0 = GL.rigs[side]; if (rg0 && rg0.group) px0 = rg0.group.position.x; } catch (e) {}
+        STAIN.pools.push({ side: side, t0: now + (CLASSIC ? 600 : 520), x: px0, z: pz0, r: 0, scale: (CLASSIC ? 1.0 : 0.85) + Math.random() * 0.3, seed: Math.random(), done: false });
       }
       // deslize, voo e quique do corpo depois do tiro fatal (unidades de mundo)
       function corpseKin(side, now){
@@ -4039,7 +4045,14 @@
           } else _ik.T.set(_ik.H.x + fx * R.sx, _ik.H.y + R.sy, _ik.H.z + zsg * 0.03);
           var dx = _ik.T.x - _ik.S.x, dy = _ik.T.y - _ik.S.y, dz = _ik.T.z - _ik.S.z;
           var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-          var dd = Math.max(Math.abs(l1 - l2) + 0.02, Math.min(l1 + l2 - 0.01, dist));
+          // pose 11 (feira): o braço do modelo é curto demais para alcançar
+          // o coldre/quadril (ombro-arma ~1,12 m, braço 0,84 m) — com a
+          // extensão total o cotovelo ficava reto e o braço parecia
+          // "caído ao lado do corpo". Limita o alcance a 88% para o
+          // cotovelo sempre dobrar para fora (como no original: mão no
+          // quadril/coldre com o cotovelo para o lado). A mão fica perto
+          // do quadril/coldre e os dedos enrolados apontam para o cabo.
+          var dd = Math.max(Math.abs(l1 - l2) + 0.02, Math.min((l1 + l2) * 0.88, dist));
           var ux = dx / dist, uy = dy / dist, uz = dz / dist;
           var aa = (l1*l1 - l2*l2 + dd*dd) / (2 * dd), hh = Math.sqrt(Math.max(0, l1*l1 - aa*aa));
           // cotovelo: o da arma dobra para trás e um pouco para fora; o da
@@ -4371,13 +4384,20 @@
           // máximo ~20° cada (o corpo nunca fica quase na horizontal
           // em pé); a dobra para a frente (barriga) continua inteira
           var headBend = 0.06 * poseW + leanEff * 2.0 + snap * 1.8 + foldF * 0.6 - 0.25 * cr + 0.15 * vic;
-          var chestBend = leanEff * 1.8 + 0.35 * cr + fold * 0.7 + 0.45 * vic;
+          var chestBend = leanEff * 1.8 + 0.35 * cr + fold * 0.7 + 0.45 * vic + 0.12 * poseW; // pose 12 (feira): tronco levemente inclinado para a frente no combate, como no original (antes inclinava ~8° para trás)
           var abdBend = fold * 0.5 + 0.25 * vic;
           if (headBend < -0.55) headBend = -0.55; if (headBend > 0.65) headBend = 0.65;
           if (chestBend < -0.55) chestBend = -0.55; if (chestBend > 0.75) chestBend = 0.75;
           if (abdBend < -0.45) abdBend = -0.45; if (abdBend > 0.60) abdBend = 0.60;
-          glbBend(rig, 'LowerArm' + gunSide, AX_X, 0.28 * poseW + gunDroop);
-          glbBend(rig, 'Wrist' + gunSide, AX_X, -0.28 * poseW);
+          // pose 12 (feira): braço da arma RETO ao atirar, como no original
+          // — antes o cotovelo dobrava 0,28 rad na mira e o braço ficava
+          // baixo e torto (dobra 0,21 m, braço a -29°). Sem a dobra, o
+          // braço aponta para a mira do mouse (a altura continua sendo
+          // a do mouse): dobra 0,11 m, braço a -9°. Testado -0,15: piorou
+          // (a dobra do clip não se anula por este eixo — piora a dobra
+          // e baixa o braço para -19°), então fica 0,0.
+          glbBend(rig, 'LowerArm' + gunSide, AX_X, 0.0 * poseW + gunDroop);
+          glbBend(rig, 'Wrist' + gunSide, AX_X, -0.0 * poseW);
           glbBend(rig, 'LowerArm' + supSide, AX_X, 0.12 * poseW + Math.abs(C.SP.flail.x) * 0.1 + fold * 0.4);
           // DESLOCAMENTO DE PESO (v19, amplitude v26): parado, o boneco era uma
           // estátua da cintura para baixo — o clip idle é o repouso
@@ -4439,8 +4459,14 @@
           // Não se baixa Hips.position.y: o quadril é pai das pernas,
           // baixar ele baixa os pés e a correção de chão sobe o corpo
           // de volta. Cabeça desce de ~2,83 para ~2,2.
-          glbBend(rig, 'UpperLegL', AX_X, -0.95 * cr + swL);
-          glbBend(rig, 'UpperLegR', AX_X, -0.95 * cr + swR);
+          // pose 12 (feira): passada LARGA no combate, como no original —
+          // antes as pernas ficavam juntas (0,48 m entre os tornozelos).
+          // Perna do lado da arma para trás (+0,25) e a outra para a
+          // frente (-0,30), igual à pose de prontidão (que já provou
+          // manter os pés no chão); a canela já compensa com 0,15*poseW.
+          var wideGun = 0.25 * poseW, wideSup = -0.30 * poseW;
+          glbBend(rig, 'UpperLegL', AX_X, -0.95 * cr + swL + (gunSide === 'L' ? wideGun : wideSup));
+          glbBend(rig, 'UpperLegR', AX_X, -0.95 * cr + swR + (gunSide === 'R' ? wideGun : wideSup));
           glbBend(rig, 'Head', AX_X, headBend + (idleOK2(C, cr) ? 0.04 * Math.sin(C.now / 1000 * 0.9 + 1.0) : 0));
           glbBend(rig, 'Chest', AX_X, chestBend + (idleOK2(C, cr) ? 0.035 * Math.sin(C.now / 1000 * 1.25) : 0));
           glbBend(rig, 'Abdomen', AX_X, abdBend);
@@ -4553,6 +4579,19 @@
         if (situation === 'dead' && rig.deathPose){
           var dp = rig.deathPose;
           var dpW = Math.min(1, Math.max(0, (deathP - 0.5) / 0.5));
+          // item 4 (feira) + bug "morto flutua": depois que o corpo toca
+          // o chão (~0,8 s após a morte), as pernas esticam até deitar
+          // reto no chão, como no original. A pose sorteada dobrava
+          // quadril/joelho e o morto terminava com as pernas para cima
+          // ou o tronco levantado — e o corpo subia de novo ~1 s após
+          // a morte (o clip da morte termina e a pose sorteada o
+          // levantava). Começar a esticar aos 0,8 s (quando o corpo
+          // assenta) evita essa subida: as pernas já estão retas
+          // quando o clip termina. Os braços mantêm a pose sorteada.
+          var dAt4 = C.side === 'you' ? G.deathYouAt : G.deathOppAt;
+          var tDead4 = dAt4 ? (C.now - dAt4) / 1000 : 0;
+          var legFlatW = Math.min(1, Math.max(0, (tDead4 - 0.8) / 0.5));
+          var legW = dpW * (1 - legFlatW);
           var dpElGun = dp.zone === 'arm' ? 0.95 : (gunSide === 'R' ? dp.elR : dp.elL);
           var dpShGun = dp.zone === 'arm' ? 0.10 : (gunSide === 'R' ? dp.shR : dp.shL);
           var dpElFree = supSide === 'R' ? dp.elR : dp.elL;
@@ -4561,10 +4600,10 @@
           glbBend(rig, 'Shoulder' + supSide, AX_Z, dpShFree * dpW + flailS);
           glbBend(rig, 'LowerArm' + gunSide, AX_X, dpElGun * dpW);
           glbBend(rig, 'LowerArm' + supSide, AX_X, dpElFree * dpW);
-          glbBend(rig, 'UpperLegL', AX_X, dp.hipL * dpW);
-          glbBend(rig, 'UpperLegR', AX_X, dp.hipR * dpW);
-          glbBend(rig, 'LowerLegL', AX_X, dp.knL * dpW);
-          glbBend(rig, 'LowerLegR', AX_X, dp.knR * dpW);
+          glbBend(rig, 'UpperLegL', AX_X, dp.hipL * legW);
+          glbBend(rig, 'UpperLegR', AX_X, dp.hipR * legW);
+          glbBend(rig, 'LowerLegL', AX_X, dp.knL * legW);
+          glbBend(rig, 'LowerLegR', AX_X, dp.knR * legW);
         }
         // a postura mudou os ossos: recalcula as posições para o chão e os adereços
         W = glbCurrentWorld(rig);
@@ -4762,7 +4801,15 @@
             if (gx > maxBX) maxBX = gx;
           });
           if (minBX !== Infinity){
-            var wMin = g.position.x + minBX, wMax = g.position.x + maxBX;
+            // pose 13 (feira): o recuo (push) NÃO pode ser cancelado
+            // pelo xShift — antes, o corpo caído/morto era puxado para
+            // dentro da tela e o empurrão do tiro sumia: o grupo
+            // terminava 0,16 m para a FRENTE (harness: 4,63 -> 4,47).
+            // Mede a extensão do corpo SEM o recuo e desloca só o
+            // necessário para o corpo sem recuo caber; o recuo fica por
+            // cima, como no original (o corpo fica deslocado para trás).
+            var baseX = g.position.x - C.SP.push.x;
+            var wMin = baseX + minBX, wMax = baseX + maxBX;
             if (wMin < camX - halfW + mEdge) xShift = (camX - halfW + mEdge) - wMin;
             else if (wMax > camX + halfW - mEdge) xShift = (camX + halfW - mEdge) - wMax;
             if (xShift) g.position.x += xShift;
