@@ -580,11 +580,60 @@
         for (var i=0;i<n.length;i++) beep(n[i], .26, 'triangle', .13, i*.12);
         toneDrop(196, 98, .5, 'sine', .12, n.length*.12);
       }
+      // item 8 (feira): MÚSICA DE FUNDO — melodia NOSSA (nunca copiada
+      // do original), sintetizada com WebAudio, a mesma técnica dos
+      // efeitos (oscilador + ganho). Loop simples, calmo e baixo: lá
+      // menor, 96 BPM, 4 compassos (~10 s), triângulo suave na melodia
+      // e seno grave no baixo, um compasso por vez. Sem arquivo de
+      // áudio externo, tudo em código. Só começa depois de uma
+      // interação do usuário (o navegador bloqueia som antes do
+      // clique) e obedece ao botão de som que já existe.
+      var musicBus = null, musicTimer = null, musicNext = 0, musicIdx = 0, musicBeat = 0;
+      var MUSIC_BEAT = 60 / 96; // 0,625 s por tempo
+      var MUSIC_MEL = [ // [freq, tempos] — melodia própria
+        [440,1],[523,1],[659,2],[587,1],[523,1],[440,2],
+        [392,1],[330,1],[294,2],[330,1],[392,1],[440,2]
+      ];
+      var MUSIC_BASS = [110, 110, 82, 110]; // um por compasso (4 tempos)
+      function musicNote(freq, dur, type, vol, when){
+        var a = ac(); if (!a) return;
+        if (!musicBus){ musicBus = a.createGain(); musicBus.gain.value = soundOn ? 1 : 0; musicBus.connect(a.destination); }
+        var o = a.createOscillator(), g = a.createGain();
+        o.type = type; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0001, when);
+        g.gain.exponentialRampToValueAtTime(vol, when + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.92);
+        o.connect(g); g.connect(musicBus); o.start(when); o.stop(when + dur);
+      }
+      function musicTick(){
+        var a = audioCtx; if (!a) return;
+        if (!soundOn){ musicNext = Math.max(musicNext, a.currentTime + 0.1); return; }
+        while (musicNext < a.currentTime + 0.4){
+          var n = MUSIC_MEL[musicIdx];
+          var dur = n[1] * MUSIC_BEAT;
+          musicNote(n[0], dur, 'triangle', 0.05, musicNext);
+          if (musicBeat % 4 === 0) musicNote(MUSIC_BASS[(musicBeat / 4) | 0], 4 * MUSIC_BEAT, 'sine', 0.045, musicNext);
+          musicNext += dur;
+          musicBeat += n[1];
+          if (musicBeat >= 16) musicBeat -= 16;
+          musicIdx = (musicIdx + 1) % MUSIC_MEL.length;
+        }
+      }
+      function startMusic(){
+        var a = ac(); if (!a) return;
+        if (musicTimer) return;
+        musicNext = a.currentTime + 0.1;
+        musicBeat = 0; musicIdx = 0;
+        musicTimer = setInterval(musicTick, 120);
+      }
+      // primeira interação do usuário liga a música (gesto = permissão de som)
+      document.addEventListener('pointerdown', function(){ startMusic(); }, { once: true });
       el('soundBtn').addEventListener('click', function(){
         soundOn = !soundOn;
         this.textContent = soundOn ? '🔊 Som ligado' : '🔇 Som desligado';
         this.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
-        if (soundOn) ac();
+        if (musicBus) musicBus.gain.value = soundOn ? 1 : 0;
+        if (soundOn){ ac(); startMusic(); }
       });
 
       /* ---------------- ESTADO DO JOGO ---------------- */
@@ -1760,7 +1809,16 @@
           setupAI();
         }
         hideMsg();
-        G.countT0 = t0; G.countStep = -1;
+        // pose 17 / item 5 (feira): ENTRADA DURANTE O PAINEL — a
+        // caminhada dura 950 ms (walkT0 = t0 - 350, termina em t0+600)
+        // mas a contagem começava em t0, então o "3" aparecia com os
+        // dois ainda andando e eles só paravam no "1". Agora a
+        // contagem começa em t0+600: a caminhada termina exatamente
+        // quando aparece o "3", e o painel ROUND n/9 START fica na
+        // tela durante a entrada (PREPAREM-SE). Se o mouse estiver
+        // fora do tambor, a contagem continua esperando (a caminhada
+        // já terminou e os dois aguardam na pose de prontidão).
+        G.countT0 = t0 + 600; G.countStep = -1;
         G.count = 'PREPAREM-SE';
         renderHUD();
       }
@@ -1993,7 +2051,15 @@
       var B_JOINTS = ['hip','sho','head','kneeF','bootF','kneeB','bootB','elbL','handL','elbG','handG'];
       var B_STAND = { hip:[0,302], sho:[8,230], head:[10,180], kneeF:[28,350], bootF:[34,385], kneeB:[-22,346], bootB:[-32,385], elbL:[-16,272], handL:[-9,308], elbG:null, handG:null, gunAng:null, headTilt:0 };
       function bPose(base, over){ var p = {}, k; for (k in base) p[k] = base[k]; if (over) for (k in over) p[k] = over[k]; return p; }
-      var B_GROUND = bPose(B_STAND, { hip:[-34,354], sho:[20,316], head:[28,280], kneeF:[-80,372], bootF:[-112,381], kneeB:[-70,378], bootB:[-100,386], elbL:[4,350], handL:[-16,385], headTilt:.12 });
+      // pose 16 (feira): CAÍDO DE BRUÇOS no 2D — o caído ficava SENTADO
+      // (quadril 354, cabeça 280, tronco ereto); no original ele deita
+      // de barriga no chão, pernas estendidas para trás, cabeça levantada
+      // mirando. Agora o corpo fica horizontal no chão (como o morto
+      // B_DEAD), com a cabeça para a frente e levantada (360, acima do
+      // ombro 376) e as pernas estendidas para trás; o braço da arma
+      // continua seguindo a mira do mouse (elbG/handG null), então ele
+      // atira do chão como antes, só muda a pose.
+      var B_GROUND = bPose(B_STAND, { hip:[-20,380], sho:[28,376], head:[68,360], kneeF:[-62,380], bootF:[-104,386], kneeB:[-58,382], bootB:[-100,386], elbL:[8,382], handL:[-12,388], headTilt:-0.05 });
       // MORTO DEITADO - refeito para o modelo 3D: o corpo deita chapado
       // no chão, com o comprimento real do modelo (~200 px da cabeça à
       // bota), torso sem compressão, pernas juntas e estendidas, braços
@@ -4236,18 +4302,18 @@
         else if (crouchP > 0.5){ situation = 'crouch'; base = 'crouch_' + gunSide; aimTarget = 1; }
         else if (walkP < 1){ situation = 'walk'; base = 'walk'; aimTarget = 0; }
         else if (celeb){
-          // etapa 5 (item 6): o vencedor NÃO fica a rodada inteira
-          // curvado mirando o caído — ~1 s mirando, enquanto o painel
-          // ROUND COMPLETE aparece com o fade, depois guarda a arma
-          // no coldre (aimTarget 0: a arma desliza de volta sem
-          // teleporte, como o saque ao contrário) e comemora com o
-          // clip 'wave' que já existe no GLB (os dois modelos têm).
-          // Sem 'wave', fica em pé normal com a arma guardada.
-          // No fim do duelo (matchEnd) já passou 1 s, então entra
-          // direto guardado e comemorando.
+          // pose 14 (feira): o vencedor MIRA NO MORTO até o painel
+          // fechar — no original (f04) ele continua com a arma
+          // estendida, pernas em posição de tiro, até o painel
+          // ROUND COMPLETE fechar. Antes mirava só 1 s e guardava a
+          // arma para acenar. Agora: no fim de RODADA (roundEnd) mira
+          // o tempo todo (o painel só fecha com NEXT ROUND ou o timer);
+          // a comemoração (wave) fica só para o fim da PARTIDA
+          // (matchEnd), depois de 1 s mirando.
           var celebT = G.roundEndAt ? (now - G.roundEndAt) : 9999;
           situation = 'celebrate';
-          if (celebT < 1000){ base = 'combat_' + gunSide; aimTarget = 1; }
+          if (G.phase === 'roundEnd'){ base = 'combat_' + gunSide; aimTarget = 1; }
+          else if (celebT < 1000){ base = 'combat_' + gunSide; aimTarget = 1; }
           else if (rig.clipActions && rig.clipActions['wave']){ base = 'wave'; aimTarget = 0; }
           else { base = 'idle'; aimTarget = 0; }
         }
@@ -4470,6 +4536,34 @@
           glbBend(rig, 'Head', AX_X, headBend + (idleOK2(C, cr) ? 0.04 * Math.sin(C.now / 1000 * 0.9 + 1.0) : 0));
           glbBend(rig, 'Chest', AX_X, chestBend + (idleOK2(C, cr) ? 0.035 * Math.sin(C.now / 1000 * 1.25) : 0));
           glbBend(rig, 'Abdomen', AX_X, abdBend);
+          // pose 16 (feira): CAÍDO DE BRUÇOS — o caído ficava sentado
+          // ereto (quadril 1,28 m, cabeça 2,74 m); no original ele deita
+          // de barriga no chão, pernas estendidas, cabeça levantada,
+          // arma estendida mirando. O clip 'ground' dá a base sentada;
+          // por cima, inclina o tronco para a frente até deitar, estende
+          // as pernas para trás e levanta a cabeça. Entra em rampa com
+          // a queda (ft/780 ms) para não dar tranco. O chão (meshMinY)
+          // segura o corpo no chão. Fica DEPOIS das dobras de
+          // Head/Chest/Abdomen (o glbBend guarda o ângulo por osso e
+          // eixo — a última chamada vence). Agora o corpo já deita
+          // (quadril 0,50, peito 0,85, pés no chão 0,29-0,31) — falta
+          // levantar a cabeça (está a 0,54, olhando para o chão) e
+          // esticar o braço da arma (cotovelo para cima).
+          if (situation === 'ground'){
+            var ftP = now - (C.poseAtNow || now);
+            var proneW = Math.max(0, Math.min(1, ftP / 780));
+            if (proneW > 0.002){
+              glbBend(rig, 'Hips', AX_X, 0.7 * proneW);
+              glbBend(rig, 'Abdomen', AX_X, 0.7 * proneW);
+              glbBend(rig, 'Chest', AX_X, 0.7 * proneW);
+              glbBend(rig, 'Head', AX_X, -1.3 * proneW);
+              glbBend(rig, 'UpperLegL', AX_X, 0.35 * proneW);
+              glbBend(rig, 'UpperLegR', AX_X, 0.35 * proneW);
+              glbBend(rig, 'LowerLegL', AX_X, 0.3 * proneW);
+              glbBend(rig, 'LowerLegR', AX_X, 0.3 * proneW);
+              glbBend(rig, 'LowerArm' + gunSide, AX_X, -0.2 * proneW);
+            }
+          }
           // torção do quadril e do peito no impacto: o corpo gira um
           // pouco para o lado do tiro e dá um passo para se equilibrar
           // (o passo em si já existe: o grupo desliza com SP.push)
@@ -4792,7 +4886,12 @@
         var xShift = 0;
         if ((situation === 'dead' || situation === 'ground') && GL.camera){
           var halfW = Math.tan(GL.camera.fov * Math.PI / 360) * GL.camera.position.z * GL.camera.aspect;
-          var camX = GL.camera.position.x || 0, mEdge = 0.35;
+          var camX = GL.camera.position.x || 0, mEdge = 0.10;
+          // pose 16 (feira): o corpo de bruços é comprido (pés 1,1 m
+          // atrás do grupo) — com a margem antiga (0,35) o xShift
+          // puxava o grupo 0,51 m para dentro e cancelava o recuo
+          // (harness: 4,63 -> 4,43). Margem menor deixa o corpo
+          // encostar mais na borda sem cancelar o empurrão do tiro.
           var minBX = Infinity, maxBX = -Infinity;
           ['Head','Chest','Hips','FootL','FootR','PTL','PTR'].forEach(function(bn){
             if (!pos[bn]) return;
